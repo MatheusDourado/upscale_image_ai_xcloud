@@ -14,4 +14,4 @@ Comece em saída Automática, Nitidez 3–5, Detalhe 35–60%, Degradês 30–50
 
 Documentação: `docs/validation-v8.6.md`.
 
-SHA-256 do asset: `53f2e0d1ca28a8d849dcceb2f634d4bd392a7b3350d88fc2450ca4876703b545`.
+SHA-256 do asset: `24b1128743a80574c9818dd688448675c51ffc33531996de16f36e20ac906a03`.
