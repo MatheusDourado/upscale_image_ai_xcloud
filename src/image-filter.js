@@ -6,6 +6,8 @@
  settings.contrast=1;settings.saturation=1;settings.shadows=0;
  const status={mode:'waiting',frames:0,lastFrame:0,resolution:'',error:'',gpuP95:null,measurement:'cadence',adaptation:'',fps:null};
  let activeEngine=null,activePlayer=null;
+ // Physical pixels of the display/HDMI mode; stable regardless of canvas backing size.
+ const displayHeight=()=>Math.round((screen?.height||0)*(window.devicePixelRatio||1));
  const api=window.BxImageFilter={settings,status,diagnostic:false,reset(){Object.assign(settings,BxRestoration.defaults);persist();api.diagnostic=false;activeEngine?.resetBudget();if(activePlayer){activePlayer.bxReferenceFps=null;activePlayer.bxTimes=[];activePlayer.bxCadenceMark=performance.now();}}};
  function persist(){try{localStorage.setItem(key,JSON.stringify(BxRestoration.normalize(settings)));}catch{}}
  const proto=WebGL2Player.prototype,setup=proto.setupShaders,frame=proto.updateFrame,destroy=proto.destroy;
@@ -39,6 +41,7 @@
   }
   const video=this.$video,w=video.videoWidth||video.width,h=video.videoHeight||video.height;
   if(!w||!h)return;
+  renderSettings.output=BxRestoration.resolveOutput(settings.output,displayHeight(),h);
   const time=Number.isFinite(video.currentTime)?video.currentTime:performance.now()/1000;
   const count=video.getVideoPlaybackQuality?.().totalVideoFrames;
   const token=count>0?`${count}:${w}:${h}`:`${time}:${w}:${h}`;
@@ -56,6 +59,7 @@
    this.bxLastFrame=token;this.bxLastSettings=controls;
    status.mode=api.diagnostic?'diagnostic':settings.mode;status.frames=this.bxEngine.frames;status.lastFrame=Date.now();status.resolution=`${w}×${h} → ${ow}×${oh}`;
    status.gpuP95=this.bxEngine.budget.p95;status.measurement=this.bxEngine.ext?'gpu':'cadence';status.adaptation=this.bxEngine.budget.reason;
+   status.display=displayHeight();
    const now=performance.now();this.bxTimes.push(now);while(this.bxTimes.length>1&&now-this.bxTimes[0]>2000)this.bxTimes.shift();
    status.fps=this.bxTimes.length>1?(this.bxTimes.length-1)*1000/(now-this.bxTimes[0]):null;
    if(now-(this.bxCadenceMark||0)>2000){
@@ -75,8 +79,8 @@
  function mountControls(parent){
   if(controlsPanel){parent.append(controlsPanel);return;}
   if(parent.querySelector('[data-bx-restoration]'))return;
-  const panel=controlsPanel=document.createElement('div');panel.dataset.bxRestoration='v8';
-  const title=document.createElement('p');title.textContent='Tratamento de imagem • v8';panel.append(title);
+  const panel=controlsPanel=document.createElement('div');panel.dataset.bxRestoration='v8.5';
+  const title=document.createElement('p');title.textContent='Tratamento de imagem • v8.5';panel.append(title);
   function row(label,control){
    const wrapper=document.createElement('label');wrapper.className='bx-settings-row';
    const text=document.createElement('span');text.className='bx-settings-label';text.textContent=label;
@@ -86,7 +90,7 @@
   for(const [value,label]of [['original','Vídeo original'],['cas','Referência: CAS em 2'],['filtered','Novo tratamento']]){const option=document.createElement('option');option.value=value;option.textContent=label;choose.append(option);}
   choose.value=settings.mode;choose.onchange=()=>{settings.mode=choose.value;persist();};row('Comparação',choose);
   const inputs=[];
-  for(const [name,label]of [['cleanup','Compressão'],['deband','Degradês'],['temporal','Estabilidade em movimento'],['antialias','Antialiasing']]){
+  for(const [name,label]of [['cleanup','Compressão'],['deband','Degradês'],['chroma','Cor nas bordas'],['detail','Detalhe'],['temporal','Estabilidade em movimento'],['antialias','Antialiasing']]){
    const input=document.createElement('input');input.type='range';input.min=0;input.max=100;input.step=1;input.className='bx-focusable';input.setAttribute('aria-label',label);
    const text=row(label,input);
    const sync=()=>{input.value=Math.round(settings[name]*100);text.textContent=`${label}: ${input.value}%`;};sync();inputs.push(sync);
@@ -100,7 +104,7 @@
   }
   selection('Limpeza espacial','spatialMode',[['selective','Seletiva v8'],['legacy','Referência v7.1']]);
   selection('Nitidez final','sharpening',[['native','CAS / USM nativo'],['rcas','RCAS experimental']]);
-  selection('Resolução de saída','output',[['native','1080p / nativa com tratamento'],['1440','2K — 2560 × 1440'],['2160','4K — 3840 × 2160']]);
+  selection('Resolução de saída','output',[['auto','Automática — resolução da tela'],['native','1080p / nativa com tratamento'],['1440','2K — 2560 × 1440'],['2160','4K — 3840 × 2160']]);
   selection('Tratamento na GPU','gpuBudget',[['3','Adaptar acima de 3 ms'],['6','Adaptar acima de 6 ms'],['10','Adaptar acima de 10 ms'],['0','Manter todos os filtros ativos']]);
   const diagnostic=document.createElement('button');diagnostic.className='bx-focusable';
   const syncDiagnostic=()=>diagnostic.textContent=api.diagnostic?'Encerrar diagnóstico':'Diagnóstico: colorir imagem';syncDiagnostic();
@@ -117,13 +121,15 @@
   panel.append(measure,exportReport);
   const reset=document.createElement('button');reset.className='bx-focusable';reset.textContent='Restaurar tratamento';reset.onclick=()=>{api.reset();for(const sync of inputs)sync();choose.value=settings.mode;syncDiagnostic();};panel.append(reset);
   const report=document.createElement('p');report.setAttribute('role','status');panel.append(report);
-  const note=document.createElement('p');note.textContent='A intensidade usa Nitidez acima; RCAS tem escala própria e substitui CAS/USM. Comece em saída nativa, CAS 2 e 3 ms. A medição exporta tempos GPU e contadores disponíveis; não mede latência do controle. Tratamento salvo para todos os jogos.';panel.append(note);
+  const note=document.createElement('p');note.textContent='A intensidade usa Nitidez acima; RCAS tem escala própria e substitui CAS/USM. Comece em saída Automática, CAS 2 e 6 ms. Cor nas bordas alinha a cor 4:2:0 às bordas da luma; Detalhe realça textura só na luma, sem realçar ruído fraco. A medição exporta tempos GPU e contadores disponíveis; não mede latência do controle. Tratamento salvo para todos os jogos.';panel.append(note);
+  // Explicit 2K/4K above the display (e.g. 1080p HDMI to a 4K TV) is scaled back down by the browser.
+  const outputWarning=()=>settings.mode==='filtered'&&['1440','2160'].includes(settings.output)&&status.display&&Number(settings.output)>status.display*1.1?`Tela/HDMI em ${status.display}p: saída maior só aumenta custo. Use Automática.\n`:'';
   let interval=null;
   const refresh=()=>{
    syncDiagnostic();
    if(status.mode==='error')report.textContent='Erro: '+status.error;
    else if(!status.lastFrame||Date.now()-status.lastFrame>2500)report.textContent='Sem quadros recentes. Selecione WebGL2 durante o jogo.';
-   else report.textContent=`${status.mode} • ${status.resolution} • ${status.frames} quadros • ${status.fps?.toFixed(1)||'—'} FPS\n${status.measurement==='gpu'?`GPU total p95: ${status.gpuP95?.toFixed(2)||'—'} ms`:'Sem medição GPU; apenas cadência'} ${status.adaptation}`;
+   else report.textContent=`${outputWarning()}${status.mode} • ${status.resolution} • ${status.frames} quadros • ${status.fps?.toFixed(1)||'—'} FPS\n${status.measurement==='gpu'?`GPU total p95: ${status.gpuP95?.toFixed(2)||'—'} ms`:'Sem medição GPU; apenas cadência'} ${status.adaptation}`;
   };
   // Rebuilt menu instances must not retain timers after removal.
   const observer=new MutationObserver(()=>{

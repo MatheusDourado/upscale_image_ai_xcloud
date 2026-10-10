@@ -17,7 +17,7 @@ test('manual GPU policy retains temporal and gradients despite high timings or l
  assert.equal(p.temporalAllowed,true);assert.equal(p.debandScale,1);assert.equal(p.p95,20);
 });
 test('new controls sanitize saved output, AA and GPU policy',()=>{
- const a=api(),s=a.normalize({output:'invalid',antialias:99,gpuBudget:-5});assert.equal(s.output,'native');assert.equal(s.antialias,1);assert.equal(s.gpuBudget,3);
+ const a=api(),s=a.normalize({output:'invalid',antialias:99,gpuBudget:-5});assert.equal(s.output,'auto');assert.equal(s.antialias,1);assert.equal(s.gpuBudget,6);
  assert.equal(a.normalize({gpuBudget:0,output:'2160'}).gpuBudget,0);
 });
 
@@ -70,4 +70,25 @@ test('video stats export only allowlisted video counters, no addresses',async()=
 });
 test('ending a capture keeps the original interruption reason on export',()=>{
  const d=api().createDiagnostics();d.start();d.frame({},0);d.stop('source-changed');d.stop();assert.equal(d.report().stopReason,'source-changed');d.start();assert.equal(d.report().stopReason,null);
+});
+
+test('v8.5 auto output follows the physical display, never above it',()=>{
+ const a=api();assert.equal(a.defaults.output,'auto');
+ assert.equal(a.resolveOutput('auto',1080,1080),'native');
+ assert.equal(a.resolveOutput('auto',864*1.25,1080),'native');
+ assert.equal(a.resolveOutput('auto',1440,1080),'1440');
+ assert.equal(a.resolveOutput('auto',2160,1080),'2160');
+ assert.equal(a.resolveOutput('auto',2160,2160),'native');
+ assert.equal(a.resolveOutput('auto',0,1080),'native');
+ assert.equal(a.resolveOutput('2160',1080,1080),'2160');
+ assert.equal(a.normalize({output:'auto'}).output,'auto');
+});
+test('v8.5 chroma and detail are bounded and degrade last under overload',()=>{
+ const a=api(),s=a.normalize({chroma:7,detail:-1});assert.equal(s.chroma,1);assert.equal(s.detail,0);
+ assert.ok(a.defaults.chroma>0&&a.defaults.detail>0);
+ const p=a.createBudget();p.configure({cleanup:.35,deband:0,chroma:.5,detail:.35},1080);
+ for(let i=0;i<90;i++)p.sample(9);
+ assert.equal(p.cleanupAllowed,false);assert.equal(p.enhanceAllowed,true);
+ for(let i=0;i<90;i++)p.sample(9);
+ assert.equal(p.enhanceAllowed,false);
 });

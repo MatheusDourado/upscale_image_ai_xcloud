@@ -4,10 +4,11 @@ precision highp sampler2D;
 uniform sampler2D source;uniform vec2 outputSize;out vec4 fragColor;
 float safeRcp(float x){return 1./max(x,1e-8);}float safeRsq(float x){return inversesqrt(max(x,1e-8));}
 float saturate(float x){return clamp(x,0.,1.);}vec3 min3(vec3 a,vec3 b,vec3 c){return min(a,min(b,c));}vec3 max3(vec3 a,vec3 b,vec3 c){return max(a,max(b,c));}
-// WebGL2 has no textureGather. Emulate its ordering using clamped texelFetch.
-vec4 gatherChannel(vec2 uv,int channel){ivec2 size=textureSize(source,0);ivec2 p=ivec2(floor(uv*vec2(size)-.5));
- return vec4(texelFetch(source,clamp(p+ivec2(0,1),ivec2(0),size-1),0)[channel],texelFetch(source,clamp(p+ivec2(1,1),ivec2(0),size-1),0)[channel],texelFetch(source,clamp(p+ivec2(1,0),ivec2(0),size-1),0)[channel],texelFetch(source,clamp(p,ivec2(0),size-1),0)[channel]);}
-vec4 FsrEasuRF(vec2 p){return gatherChannel(p,0);}vec4 FsrEasuGF(vec2 p){return gatherChannel(p,1);}vec4 FsrEasuBF(vec2 p){return gatherChannel(p,2);}
+// WebGL2 has no textureGather. Fetch each texel once (RGB) and split channels in gather order.
+void gatherRGB(vec2 uv,out vec4 r,out vec4 g,out vec4 b){ivec2 size=textureSize(source,0);ivec2 p=ivec2(floor(uv*vec2(size)-.5));
+ vec3 t0=texelFetch(source,clamp(p+ivec2(0,1),ivec2(0),size-1),0).rgb,t1=texelFetch(source,clamp(p+ivec2(1,1),ivec2(0),size-1),0).rgb;
+ vec3 t2=texelFetch(source,clamp(p+ivec2(1,0),ivec2(0),size-1),0).rgb,t3=texelFetch(source,clamp(p,ivec2(0),size-1),0).rgb;
+ r=vec4(t0.r,t1.r,t2.r,t3.r);g=vec4(t0.g,t1.g,t2.g,t3.g);b=vec4(t0.b,t1.b,t2.b,t3.b);}
 
 // FidelityFX Super Resolution Sample
 //
@@ -137,18 +138,11 @@ vec4 FsrEasuRF(vec2 p){return gatherChannel(p,0);}vec4 FsrEasuGF(vec2 p){return 
   vec2 p1=p0+vec2(con2.xy);
   vec2 p2=p0+vec2(con2.zw);
   vec2 p3=p0+vec2(con3.xy);
-  vec4 bczzR=FsrEasuRF(p0);
-  vec4 bczzG=FsrEasuGF(p0);
-  vec4 bczzB=FsrEasuBF(p0);
-  vec4 ijfeR=FsrEasuRF(p1);
-  vec4 ijfeG=FsrEasuGF(p1);
-  vec4 ijfeB=FsrEasuBF(p1);
-  vec4 klhgR=FsrEasuRF(p2);
-  vec4 klhgG=FsrEasuGF(p2);
-  vec4 klhgB=FsrEasuBF(p2);
-  vec4 zzonR=FsrEasuRF(p3);
-  vec4 zzonG=FsrEasuGF(p3);
-  vec4 zzonB=FsrEasuBF(p3);
+  vec4 bczzR,bczzG,bczzB,ijfeR,ijfeG,ijfeB,klhgR,klhgG,klhgB,zzonR,zzonG,zzonB;
+  gatherRGB(p0,bczzR,bczzG,bczzB);
+  gatherRGB(p1,ijfeR,ijfeG,ijfeB);
+  gatherRGB(p2,klhgR,klhgG,klhgB);
+  gatherRGB(p3,zzonR,zzonG,zzonB);
 //------------------------------------------------------------------------------------------------------------------------------
   // Simplest multi-channel approximate luma possible (luma times 2, in 2 FMA/MAD).
   vec4 bczzL=bczzB*vec4(0.5)+(bczzR*vec4(0.5)+bczzG);

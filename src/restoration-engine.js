@@ -1,10 +1,10 @@
 /* Shared GPU video processing engine. GLSL assets are embedded by tools/build.py. */
 (() => {
-  const defaults = Object.freeze({mode:'filtered',cleanup:.35,deband:.3,temporal:0,upscale:true,output:'native',antialias:0,gpuBudget:3,sharpness:2,processing:'cas',sharpening:'native',spatialMode:'selective',processingMode:'performance',contrast:1,saturation:1,shadows:0});
+  const defaults = Object.freeze({mode:'filtered',cleanup:.35,deband:.3,chroma:.5,detail:.35,temporal:0,upscale:true,output:'auto',antialias:0,gpuBudget:6,sharpness:2,processing:'cas',sharpening:'native',spatialMode:'selective',processingMode:'performance',contrast:1,saturation:1,shadows:0});
   function normalize(value={}) {
     if(!value || typeof value!=='object')value={};
     const result={...defaults};
-    if(['native','1440','2160'].includes(value.output))result.output=value.output;
+    if(['auto','native','1440','2160'].includes(value.output))result.output=value.output;
     if([0,3,6,10].includes(value.gpuBudget))result.gpuBudget=value.gpuBudget;
     if(['original','cas','filtered'].includes(value.mode))result.mode=value.mode;
     if(['native','rcas'].includes(value.sharpening))result.sharpening=value.sharpening;
@@ -12,13 +12,19 @@
     if(['cas','usm'].includes(value.processing))result.processing=value.processing;
     if(['performance','quality'].includes(value.processingMode))result.processingMode=value.processingMode;
     if(typeof value.upscale==='boolean')result.upscale=value.upscale;
-    for(const [key,min,max] of [['antialias',0,1],['sharpness',0,10],['cleanup',0,1],['deband',0,1],['temporal',0,1],['contrast',.8,1.2],['saturation',0,1.3],['shadows',0,1]])
+    for(const [key,min,max] of [['antialias',0,1],['sharpness',0,10],['cleanup',0,1],['deband',0,1],['chroma',0,1],['detail',0,1],['temporal',0,1],['contrast',.8,1.2],['saturation',0,1.3],['shadows',0,1]])
       if(typeof value[key]==='number'&&Number.isFinite(value[key]))result[key]=Math.min(max,Math.max(min,value[key]));
     return result;
   }
   function historyValid(previous,time,w,h){return !!previous && previous.w===w && previous.h===h && time>previous.time && time-previous.time<.25;}
+  // Output above the physical display (or HDMI mode) adds cost without resolution.
+  function resolveOutput(output,displayHeight,sourceHeight){
+    if(output!=='auto')return output;
+    const height=displayHeight>=2000?2160:displayHeight>=1300?1440:0;
+    return height>sourceHeight?String(height):'native';
+  }
   function outputSize(w,h,output){const height=output==='1440'?1440:output==='2160'?2160:h;return {width:Math.round(w*height/h),height};}
-  function createBudget(){return {limitMs:3,values:[],p95:null,cadenceOver:0,over:0,temporalAllowed:true,debandScale:1,debandTaps:4,antialiasAllowed:true,cleanupAllowed:true,outputCap:Infinity,settings:defaults,sourceHeight:1080,revision:0,reason:'',
+  function createBudget(){return {limitMs:3,values:[],p95:null,cadenceOver:0,over:0,temporalAllowed:true,debandScale:1,debandTaps:4,antialiasAllowed:true,cleanupAllowed:true,enhanceAllowed:true,outputCap:Infinity,settings:defaults,sourceHeight:1080,revision:0,reason:'',
   configure(settings,height){this.settings=normalize(settings);this.sourceHeight=height;},
   outputFor(settings){
     if(settings.mode!=='filtered'||settings.gpuBudget===0||settings.output==='native'||this.outputCap===Infinity)return settings.output;
@@ -35,6 +41,7 @@
     else if(s.antialias>0&&this.antialiasAllowed){this.antialiasAllowed=false;this.reason='Antialiasing desligado para preservar fluidez';}
     else if(s.deband>0&&this.debandScale>0){this.debandScale=Math.max(0,this.debandScale-.5);this.debandTaps=this.debandScale>0?2:0;this.reason='Degradês reduzidos para preservar fluidez';}
     else if(s.cleanup>0&&this.cleanupAllowed){this.cleanupAllowed=false;this.reason='Limpeza desligada para preservar fluidez';}
+    else if((s.detail>0||s.chroma>0)&&this.enhanceAllowed){this.enhanceAllowed=false;this.reason='Detalhe e cor desligados para preservar fluidez';}
     else return;
     // Do not let timings from a more expensive pipeline trigger the next reduction.
     this.values=[];this.over=0;this.cadenceOver=0;this.revision++;
@@ -67,7 +74,7 @@
         if(count>=120000)return;segment.gpu.push(ms);count++;
       },
       disjoint(){if(recording)disjoints++;},
-      report(){return {schema:1,version:'8',build:globalThis.BxBuild??null,started,ended,stopReason,recording,metadata,disjoints,sampleLimit:120000,truncated:count>=120000||segments.length>=256,
+      report(){return {schema:1,version:'8.5',build:globalThis.BxBuild??null,started,ended,stopReason,recording,metadata,disjoints,sampleLimit:120000,truncated:count>=120000||segments.length>=256,
         segments:segments.map(({config,frames,first,last,gpu})=>{const sorted=[...gpu].sort((a,b)=>a-b);return {config,frames,durationMs:last-first,drawFps:last>first?(frames-1)*1000/(last-first):null,gpu:{count:gpu.length,p50:percentile(sorted,.5),p95:percentile(sorted,.95),p99:percentile(sorted,.99),samplesMs:[...gpu]}};})};}
     };
   }
@@ -80,7 +87,7 @@
       const codec=stats.get(item.codecId);row.codec=codec?{mimeType:codec.mimeType,sdpFmtpLine:codec.sdpFmtpLine}:null;result.rtc.push(row);
     });}catch{result.rtcUnavailable=true;}return result;
   }
-  function downloadReport(report){const url=URL.createObjectURL(new Blob([JSON.stringify(report,null,2)],{type:'application/json'})),a=document.createElement('a');a.href=url;a.download='bx-v8-diagnostics-'+Date.now()+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
+  function downloadReport(report){const url=URL.createObjectURL(new Blob([JSON.stringify(report,null,2)],{type:'application/json'})),a=document.createElement('a');a.href=url;a.download='bx-v8.5-diagnostics-'+Date.now()+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
   const vertex='#version 300 es\nlayout(location=0) in vec2 position;void main(){gl_Position=vec4(position,0,1);}';
   class Engine {
     constructor(gl,shaders){
@@ -138,7 +145,7 @@
       this.poll();let q=null;
       const revision=this.budget.revision;
       const filtered=s.mode==='filtered';
-      const segment=this.diagnostics.active?this.diagnostics.frame({settings:s,diagnostic,source:[w,h],output:[outW,outH],revision,effective:{temporal:filtered&&s.temporal>0&&this.budget.temporalAllowed,cleanup:filtered&&this.budget.cleanupAllowed?s.cleanup:0,deband:filtered?s.deband*this.budget.debandScale:0,debandTaps:filtered&&s.deband>0?this.budget.debandTaps:0,antialias:filtered&&this.budget.antialiasAllowed?s.antialias:0}},performance.now()):null;
+      const segment=this.diagnostics.active?this.diagnostics.frame({settings:s,diagnostic,source:[w,h],output:[outW,outH],revision,effective:{temporal:filtered&&s.temporal>0&&this.budget.temporalAllowed,cleanup:filtered&&this.budget.cleanupAllowed?s.cleanup:0,chroma:filtered&&this.budget.enhanceAllowed?s.chroma:0,detail:filtered&&this.budget.enhanceAllowed?s.detail:0,deband:filtered?s.deband*this.budget.debandScale:0,debandTaps:filtered&&s.deband>0?this.budget.debandTaps:0,antialias:filtered&&this.budget.antialiasAllowed?s.antialias:0}},performance.now()):null;
       this.usedTargets=new Set();
       if(this.ext&&this.queries.length<4){q=gl.createQuery();gl.beginQuery(this.ext.TIME_ELAPSED_EXT,q);}
       try{
@@ -147,9 +154,10 @@
         let source=this.input;
         if(s.mode==='filtered'){
           const cleanup=this.budget.cleanupAllowed?s.cleanup:0,deband=s.deband*this.budget.debandScale;
-          if(cleanup>0||deband>0){
+          const chroma=this.budget.enhanceAllowed?s.chroma:0,detail=this.budget.enhanceAllowed?s.detail:0;
+          if(cleanup>0||deband>0||chroma>0||detail>0){
             const spatial=this.target('spatial',w,h,s.processingMode==='quality');
-            this.draw('spatial',spatial,w,h,{source},{cleanup,deband,debandTaps:this.budget.debandTaps,quantize:!spatial.fp,selective:s.spatialMode==='selective'});source=spatial.texture;
+            this.draw('spatial',spatial,w,h,{source},{cleanup,deband,chroma,detail,debandTaps:this.budget.debandTaps,quantize:!spatial.fp,selective:s.spatialMode==='selective'});source=spatial.texture;
           }
           const temporalEnabled=s.temporal>0&&this.budget.temporalAllowed;
           if(temporalEnabled){
@@ -192,5 +200,5 @@
       gl.deleteTexture(this.input);gl.deleteBuffer(this.buffer);gl.deleteVertexArray(this.vao);this.targets={};this.programs={};this.queries=[];
     }
   }
-  globalThis.BxRestoration={createDiagnostics,captureVideoStats,downloadReport,Engine,defaults,normalize,historyValid,createBudget,outputSize};
+  globalThis.BxRestoration={createDiagnostics,captureVideoStats,downloadReport,Engine,defaults,normalize,historyValid,createBudget,outputSize,resolveOutput};
 })();

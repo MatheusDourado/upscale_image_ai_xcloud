@@ -1,8 +1,10 @@
-# Better xCloud — tratamento experimental v8
+# Better xCloud — tratamento experimental v8.5
 
 Userscript Windows/Chrome/Tampermonkey baseado no Better xCloud 6.7.12 fornecido em `script.js`. O original foi preservado. A integração anterior foi confirmada pelo diagnóstico magenta no Dell; o tratamento anterior não trouxe ganho perceptível.
 
-A v8 acrescenta **limpeza seletiva de cor/textura**, comparação com a limpeza v7.1, **RCAS experimental** como alternativa à nitidez nativa e exportação de diagnósticos. O padrão permanece em duas passagens WebGL2, CAS 2, saída nativa, Performance e orçamento 3 ms; temporal e AA desligados. Veja [pesquisa](docs/research-v8.md), [validação v8](docs/validation-v8.md) e [fontes/licenças v8](docs/third-party-v8.md).
+A v8.5 acrescenta **Cor nas bordas** (reconstrução da cor 4:2:0 guiada pela luma), **Detalhe** (realce só na luma, com coring contra ruído e ringing do encoder), saída **Automática** pela resolução física da tela/HDMI, EASU lendo cada texel uma vez e orçamento padrão de 6 ms. Tudo roda no mesmo passe espacial em 1080p; o padrão continua em duas passagens. Veja [validação v8.5](docs/validation-v8.5.md).
+
+A v8 acrescentou **limpeza seletiva de cor/textura**, comparação com a limpeza v7.1, **RCAS experimental** como alternativa à nitidez nativa e exportação de diagnósticos. O padrão permanece em duas passagens WebGL2, CAS 2, saída nativa, Performance e orçamento 3 ms; temporal e AA desligados. Veja [pesquisa](docs/research-v8.md), [validação v8](docs/validation-v8.md) e [fontes/licenças v8](docs/third-party-v8.md).
 
 Em **Limpeza espacial**, alterne Seletiva v8 / Referência v7.1 para comparar. Em **Nitidez final**, RCAS substitui CAS/USM, usa o mesmo controle de intensidade com outra escala e continua opcional. Não há comprovação de superioridade geral ou ganho sustentado na Iris Xe.
 
@@ -10,14 +12,14 @@ Use **Iniciar medição** e **Encerrar e exportar medição** no menu ou player 
 
 A v7.1 corrige as pendências de degradês, halos e movimento da v7. O caminho padrão em resolução nativa usa duas passagens de pixels na GPU (antes eram três), com nitidez e acabamento unidos. No modo Performance, os intermediários espaciais usam `RGBA8` com dithering antes da primeira quantização, preservando a distribuição dos níveis sem dobrar a memória desses buffers. No modo Qualidade e no histórico temporal opcional, usa-se `RGBA16F` quando disponível; há fallback para 8 bits. Buffers de movimento continuam em 8 bits. Isso não muda a profundidade de cor do stream ou da saída HDMI.
 
-Para o Vostro 3400 ligado à TV por HDMI 1080p, comece em **saída nativa, CAS 2, orçamento 3 ms, temporal e AA desligados**. A TV continua responsável por ampliar o sinal recebido para seu painel 4K. Forçar 4K no canvas não cria informação de uma renderização 4K do jogo, nem muda o sinal HDMI.
+Para o Vostro 3400 ligado à TV por HDMI 1080p, comece em **saída Automática (resolve para nativa), CAS 2, orçamento 6 ms, Cor nas bordas 50%, Detalhe 35%, temporal e AA desligados**. A TV continua responsável por ampliar o sinal recebido para seu painel 4K. Forçar 4K no canvas não cria informação de uma renderização 4K do jogo, nem muda o sinal HDMI.
 
 ## Instalar
 
 1. Desative outras versões do Better xCloud no Tampermonkey. Não execute duas juntas.
 2. Substitua todo o conteúdo do script experimental por `better-xcloud-image-filter.user.js`, salve e recarregue o xCloud.
 3. Mantenha resolução **1080p HQ**, qualidade **Alta**, bitrate **Ilimitado** e renderizador **WebGL2**.
-4. Abra **Tratamento de imagem • v8** no menu do Better xCloud, na seção **Vídeo**, logo após **Nitidez**.
+4. Abra **Tratamento de imagem • v8.5** no menu do Better xCloud, na seção **Vídeo**, logo após **Nitidez**.
 5. Compare **CAS em 2** e **Novo tratamento** na mesma cena. **Vídeo original** desliga o tratamento e a nitidez.
 
 A v6 usa o controle nativo **Nitidez** (0–10), a seleção AMD CAS/USM e o modo Performance/Qualidade do Better xCloud no **Novo tratamento**. Comece com AMD CAS em 2 e aumente aos poucos. Há uma única etapa de nitidez após o tratamento e o upscale. **Referência: CAS em 2** continua fixa em 2 para comparação; **Vídeo original** não aplica nitidez.
@@ -32,18 +34,20 @@ As configurações experimentais usam uma nova chave de armazenamento, sem impor
 | --- | --- |
 | Compressão | Suaviza pequenos saltos entre regiões uniformes; protege bordas fortes e extremos locais de textura. Não é reconstrução por IA. |
 | Degradês | Suaviza faixas com amostragem até 8 pixels, preservação de textura fina e dithering na quantização. |
+| Cor nas bordas | O vídeo chega com cor em meia resolução (4:2:0) e o navegador a amplia borrada. Em bordas de luma, usa a cor limpa de cada lado (2 px) e a luma do pixel para decidir o lado. Cor fora dessa mistura (linhas finas, texto colorido) é preservada. |
+| Detalhe | Realce de textura fina e contraste local (raio ~3 px) somente na luma, antes de temporal/upscale. Coring ignora diferenças fracas e cresce perto de bordas fortes, para não realçar ruído e ringing do encoder. Overshoot limitado. |
 | Estabilidade em movimento | Tratamento temporal experimental: busca grosseira até aproximadamente 40 pixels e refinamento local em passos de meio pixel. Rejeita correspondências ruins e cortes. |
-| Resolução de saída | Nativa (1080p quando essa for a fonte), 2K/1440p ou 4K/2160p. Mantém a proporção da fonte; os tamanhos indicados assumem 16:9. FSR 1 EASU amplia quando a saída supera a fonte, independentemente do tamanho da janela. |
+| Resolução de saída | Automática (padrão) usa a resolução física da tela/sinal HDMI: com HDMI 1080p fica nativa. Nativa (1080p quando essa for a fonte), 2K/1440p ou 4K/2160p. Mantém a proporção da fonte; os tamanhos indicados assumem 16:9. FSR 1 EASU amplia quando a saída supera a fonte, independentemente do tamanho da janela. |
 | Antialiasing | Suavização direcional de bordas inclinadas após o temporal e antes do upscale/nitidez. Inicia desligado; experimente 25–50%. Não é MSAA/TAA do jogo. |
-| Tratamento na GPU | Adaptar acima de 3, 6 ou 10 ms, ou manter todos os filtros ativos sem redução automática. |
+| Tratamento na GPU | Adaptar acima de 3, 6 (padrão) ou 10 ms, ou manter todos os filtros ativos sem redução automática. |
 
-Valores iniciais: compressão 35%, degradês 30%, temporal **desligado**, contraste/saturação 100%, sombras 0%. Experimente temporal em 20–40% e compare giros de câmera. Durante movimentos grandes, a etapa temporal pode rejeitar todo o histórico: isso protege contra rastros, mas limita o ganho.
+Valores iniciais: compressão 35%, degradês 30%, cor nas bordas 50%, detalhe 35%, temporal **desligado**, contraste/saturação 100%, sombras 0%. Experimente temporal em 20–40% e compare giros de câmera. Durante movimentos grandes, a etapa temporal pode rejeitar todo o histórico: isso protege contra rastros, mas limita o ganho.
 
 **Diagnóstico: colorir imagem** confirma execução pela tonalidade magenta. **Restaurar tratamento** também reinicia o histórico e a adaptação de desempenho. Abra o menu de vídeo também durante tela cheia.
 
 ## Desempenho e limites
 
-O painel informa quadros, cadência e, quando disponível, tempo GPU total no percentil 95. A medição GPU inclui os comandos de upload e todos os passes: é um limite conservador, não uma medição isolada de custo adicional. Acima do limite escolhido (3 ms por padrão) sustentado, reduz apenas etapas ativas nesta ordem: temporal; saída ampliada (2160p → 1440p → nativa, quando acima da fonte); AA; degradês (quatro amostras → duas → desligado); limpeza de compressão. As preferências salvas são preservadas, e o painel mostra a resolução efetiva. Texturas que deixam de ser necessárias são liberadas.
+O painel informa quadros, cadência e, quando disponível, tempo GPU total no percentil 95. A medição GPU inclui os comandos de upload e todos os passes: é um limite conservador, não uma medição isolada de custo adicional. Acima do limite escolhido (6 ms por padrão) sustentado, reduz apenas etapas ativas nesta ordem: temporal; saída ampliada (2160p → 1440p → nativa, quando acima da fonte); AA; degradês (quatro amostras → duas → desligado); limpeza de compressão; detalhe e cor nas bordas. As preferências salvas são preservadas, e o painel mostra a resolução efetiva. Texturas que deixam de ser necessárias são liberadas.
 
 **Manter todos os filtros ativos** impede essas reduções automáticas. Ajustar um controle do tratamento ou restaurá-lo reinicia a adaptação; ela não aumenta novamente a carga por conta própria. Todo o processamento dos pixels ocorre na GPU via WebGL2; essa opção não aumenta o clock nem altera a GPU escolhida pelo Chrome. A nitidez final permanece ativa conforme o controle nativo. CAS e USM têm limite de halos, e diferenças locais muito pequenas recebem menos reforço para evitar amplificar ruído.
 

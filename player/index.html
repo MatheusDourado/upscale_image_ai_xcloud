@@ -3,8 +3,8 @@
 <h1>Comparar vídeo recebido e tratamento</h1><p>Abra um arquivo de vídeo local. Os dois lados usam o mesmo instante; à esquerda está a fonte, à direita o modo escolhido.</p>
 <input id="file" type="file" accept="video/*"><button id="play">Reproduzir / pausar</button><button id="export">Exportar quadro tratado</button>
 <label>Comparação <select id="mode"><option value="filtered">Novo tratamento</option><option value="cas">CAS em 2</option><option value="original">Sem filtro</option></select></label>
-<label>Saída <select id="scale"><option value="native">Nativa</option><option value="1440">2K — 1440p</option><option value="2160">4K — 2160p</option></select></label>
-<label>GPU <select id="gpuBudget"><option value="3">Adaptar acima de 3 ms</option><option value="6">Adaptar acima de 6 ms</option><option value="10">Adaptar acima de 10 ms</option><option value="0">Manter todos os filtros ativos</option></select></label>
+<label>Saída <select id="scale"><option value="auto">Automática (tela)</option><option value="native">Nativa</option><option value="1440">2K — 1440p</option><option value="2160">4K — 2160p</option></select></label>
+<label>GPU <select id="gpuBudget"><option value="3">Adaptar acima de 3 ms</option><option value="6" selected>Adaptar acima de 6 ms</option><option value="10">Adaptar acima de 10 ms</option><option value="0">Manter todos os filtros ativos</option></select></label>
 <label>Limpeza <select id="spatialMode"><option value="selective">Seletiva v8</option><option value="legacy">Referência v7.1</option></select></label>
 <label>Nitidez final <select id="sharpening"><option value="native">CAS</option><option value="rcas">RCAS experimental</option></select></label>
 <label>Intensidade <input id="sharpness" type="range" min="0" max="10" step="1" value="2"></label>

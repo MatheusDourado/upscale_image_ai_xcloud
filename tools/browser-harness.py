@@ -15,8 +15,10 @@ probe=r'''
  s.mode='filtered';engine.render(input,128,96,s,.032);const filtered=pixels();const jump=b=>Math.abs(b[(40*128+64)*4]-b[(40*128+63)*4]);
  check(jump(filtered)<jump(cas),'Compression reduces synthetic boundary discontinuity');check(filtered.some((v,i)=>v!==cas[i]),'Compression stage changes pixels');
  check(gl.getError()===gl.NO_ERROR,'Spatial and CAS shaders compile/render');
- s.cleanup=0;s.deband=0;engine.render(input,128,96,s,.048);const neutral=pixels();
+ s.cleanup=0;s.deband=0;s.detail=0;s.chroma=0;engine.render(input,128,96,s,.048);const neutral=pixels();
  check(Array.from({length:30},(_,x)=>neutral[(40*128+x+50)*4]).every(v=>v>=46&&v<=66),'Halo limiter keeps step inside neighborhood bounds');
+ s.detail=BxRestoration.defaults.detail;s.chroma=BxRestoration.defaults.chroma;engine.render(input,128,96,s,.050);const stacked=pixels();
+ check(Array.from({length:30},(_,x)=>stacked[(40*128+x+50)*4]).every(v=>v>=45&&v<=67),'Default detail plus CAS adds at most one level beyond the CAS bound');
  s.deband=1;for(let x=0;x<128;x++){const v=30+Math.floor(x/16)*5;ctx.fillStyle=`rgb(${v},${v},${v})`;ctx.fillRect(x,0,1,96);}
  s.mode='cas';engine.render(input,128,96,s,.064);const bands=pixels();s.mode='filtered';engine.render(input,128,96,s,.080);const debanded=pixels();
  check(debanded.some((v,i)=>v!==bands[i]),'Debanding changes stepped gradient');
@@ -48,8 +50,8 @@ probe=r'''
  prefs['video.processing.mode']='quality';player.updateFrame();check(player.gl.getError()===player.gl.NO_ERROR,'Native quality mode remains valid');
  const qualityPixels=readPlayer();check(Math.abs(qualityPixels[(40*128+20)*4]-85)<=1,'Quality halo limiter preserves uniform region luminance');
  const menu=document.createElement('section');document.body.append(menu);BxImageFilter.mountControls(menu);
- check(menu.querySelector('[data-bx-restoration="v8"]')&&!document.getElementById('bx-image-filter-panel'),'Controls mount inside supplied Better xCloud menu');
- check(menu.querySelectorAll('input[type=range]').length===4,'Compression, gradient, temporal and AA sliders added');
+ check(menu.querySelector('[data-bx-restoration="v8.5"]')&&!document.getElementById('bx-image-filter-panel'),'Controls mount inside supplied Better xCloud menu');
+ check(menu.querySelectorAll("input[type=range]").length===6,"Compression, gradient, chroma, detail, temporal and AA sliders added");
  const sharpening=menu.querySelector('[aria-label="Nitidez final"]');sharpening.value='rcas';sharpening.dispatchEvent(new Event('change'));player.updateFrame();
  check(BxImageFilter.settings.sharpening==='rcas'&&player.gl.getError()===player.gl.NO_ERROR,'RCAS selector renders through native adapter');
  const measure=[...menu.querySelectorAll('button')].find(b=>b.textContent==='Iniciar medição');await measure.onclick();

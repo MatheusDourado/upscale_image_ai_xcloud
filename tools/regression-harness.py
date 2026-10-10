@@ -11,7 +11,7 @@ html = r'''<!doctype html><meta charset="utf-8"><pre id="result">Running</pre>
  const engine=new BxRestoration.Engine(gl,BxShaders);
  const input=document.createElement('canvas');input.width=128;input.height=96;const ctx=input.getContext('2d');
  function pixels(){const p=new Uint8Array(128*96*4);gl.readPixels(0,0,128,96,gl.RGBA,gl.UNSIGNED_BYTE,p);return p;}
- function render(s,time=1){engine.render(input,128,96,{gpuBudget:0,cleanup:0,deband:0,sharpness:0,...s},time);return pixels();}
+ function render(s,time=1){engine.render(input,128,96,{gpuBudget:0,cleanup:0,deband:0,chroma:0,detail:0,output:'native',sharpness:0,...s},time);return pixels();}
  function step(a,b){ctx.fillStyle=`rgb(${a},${a},${a})`;ctx.fillRect(0,0,64,96);ctx.fillStyle=`rgb(${b},${b},${b})`;ctx.fillRect(64,0,64,96);}
  step(100,120);
  for(const processing of ['cas','usm','rcas'])for(const processingMode of ['performance','quality']){
@@ -47,9 +47,31 @@ html = r'''<!doctype html><meta charset="utf-8"><pre id="result">Running</pre>
  }
  step(100,120);const bypass=render({sharpening:'rcas',sharpness:0});
  check(bypass[(40*128+63)*4]===100&&bypass[(40*128+64)*4]===120,'RCAS zero strength bypass');
+ // v8.5: 4:2:0-like color edge. Luma steps at x=64; chroma ramps over 4 columns.
+ const toRgb=(Y,cb,cr)=>{const B=cb+Y,R=cr+Y,G=(Y-.2126*R-.0722*B)/.7152;return [R,G,B].map(v=>Math.round(Math.min(255,Math.max(0,v))));};
+ for(let x=0;x<128;x++){const t=Math.min(1,Math.max(0,(x-62.5)/2)),Y=x<64?70:130;const [r,g,b]=toRgb(Y,-10+t*-30,-5+t*70);ctx.fillStyle=`rgb(${r},${g},${b})`;ctx.fillRect(x,0,1,96);}
+ const chromaErr=px=>{let e=0;for(let x=60;x<68;x++){const i=(40*128+x)*4,Y=.2126*px[i]+.7152*px[i+1]+.0722*px[i+2],ideal=x<64?[-10,-5]:[-40,65];e+=Math.abs(px[i+2]-Y-ideal[0])+Math.abs(px[i]-Y-ideal[1]);}return e;};
+ const blurred=render({}),guided=render({chroma:1});
+ check(chromaErr(guided)<chromaErr(blurred)*.7,'Chroma from luma sharpens blurred 4:2:0 color edge',{before:chromaErr(blurred),after:chromaErr(guided)});
+ // Isoluminant color detail has no luma guide and must keep decoded color.
+ ctx.fillStyle='rgb(100,100,100)';ctx.fillRect(0,0,128,96);ctx.fillStyle='rgb(108,98,100)';ctx.fillRect(64,0,1,96);
+ const iso=render({chroma:1});check(Math.abs(iso[(40*128+64)*4]-108)<=1,'Chroma reconstruction preserves isoluminant color line',iso[(40*128+64)*4]);
+ // Low-contrast texture gains amplitude with detail; flat noise and edge ringing do not.
+ for(let x=0;x<128;x++){const v=100+(x%6<3?6:-6);ctx.fillStyle=`rgb(${v},${v},${v})`;ctx.fillRect(x,0,1,96);}
+ const amp=px=>{let lo=255,hi=0;for(let x=20;x<100;x++){const v=px[(40*128+x)*4];lo=Math.min(lo,v);hi=Math.max(hi,v);}return hi-lo;};
+ const flatTex=render({}),detailTex=render({detail:1});check(amp(detailTex)>amp(flatTex),'Detail raises low-contrast texture amplitude',{before:amp(flatTex),after:amp(detailTex)});
+ let seed=7;const rnd=()=>(seed=(seed*16807)%2147483647)/2147483647;
+ for(let y=0;y<96;y++)for(let x=0;x<128;x++){const v=100+Math.round(rnd()*2-1);ctx.fillStyle=`rgb(${v},${v},${v})`;ctx.fillRect(x,y,1,1);}
+ const sd=px=>{let a=[];for(let y=20;y<76;y++)for(let x=20;x<108;x++)a.push(px[(y*128+x)*4]);const m=a.reduce((s,v)=>s+v,0)/a.length;return Math.sqrt(a.reduce((s,v)=>s+(v-m)**2,0)/a.length);};
+ const noise0=render({}),noise1=render({detail:1});check(sd(noise1)<=sd(noise0)*1.1,'Detail coring does not amplify faint noise',{before:sd(noise0),after:sd(noise1)});
+ ctx.fillStyle='rgb(50,50,50)';ctx.fillRect(0,0,64,96);ctx.fillStyle='rgb(200,200,200)';ctx.fillRect(64,0,64,96);
+ ctx.fillStyle='rgb(53,53,53)';ctx.fillRect(61,0,1,96);ctx.fillStyle='rgb(47,47,47)';ctx.fillRect(62,0,1,96);
+ const ring0=render({}),ring1=render({detail:1});const ringAmp=px=>Math.max(...[59,60,61,62].map(x=>Math.abs(px[(40*128+x)*4]-50)));
+ check(ringAmp(ring1)<=ringAmp(ring0)+1,'Detail does not amplify ringing beside a strong edge',{before:ringAmp(ring0),after:ringAmp(ring1)});
+ step(100,120);const stepDetail=render({detail:1});check(Array.from({length:8},(_,i)=>stepDetail[(40*128+60+i)*4]).every(v=>v>=96&&v<=124),'Detail overshoot stays within CAS halo bound at a step',Array.from({length:8},(_,i)=>stepDetail[(40*128+60+i)*4]));
  // Count real draw submissions to protect the low-cost default and bypass paths.
  const draw=engine.draw.bind(engine);let passes=[];engine.draw=(name,...args)=>{passes.push(name);return draw(name,...args);};
- render({cleanup:.35,deband:.3,sharpness:2});
+ render({cleanup:.35,deband:.3,chroma:.5,detail:.35,sharpness:2});
  check(passes.length<=2,'Default native pipeline uses at most two passes',passes);
  passes=[];render({sharpening:'rcas',sharpness:2,cleanup:.35,deband:.3});check(passes.length===2,'RCAS retains two passes',passes);
  passes=[];render({});check(passes.length===1,'Disabled treatments bypass intermediate passes',passes);

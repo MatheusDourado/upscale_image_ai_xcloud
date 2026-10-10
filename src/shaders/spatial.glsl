@@ -2,7 +2,7 @@
 precision highp float;
 precision highp sampler2D;
 uniform sampler2D source;
-uniform float cleanup, deband, debandTaps;
+uniform float cleanup, deband, debandTaps, chroma, detail;
 uniform bool quantize,selective;
 out vec4 fragColor;
 float peak(vec3 c){return max(max(abs(c.r),abs(c.g)),abs(c.b));}
@@ -50,6 +50,53 @@ void main(){
   avg=weightSum>0.?avg/weightSum:c;
   float flatRegion=1.-smoothstep(.006,.012+deband*.04,diff);
   result=mix(result,avg,deband*flatRegion*.8*(1.-textureMask));
+ }
+ if(chroma>0.){
+  // Chroma from luma. 4:2:0 color is upsampled with a ~2 px blur while luma
+  // stays sharp. Across a luma edge, samples 2 px away on each side carry
+  // clean color; the center luma says which side (or blend) it belongs to.
+  vec2 g=vec2(lum(east)-lum(west),lum(north)-lum(south));
+  float gl=length(g);
+  if(gl>4./255.){
+   vec2 size=vec2(textureSize(source,0)),uv=(p+.5)/size,d=g/gl*2./size;
+   vec3 A=texture(source,uv-d).rgb,B=texture(source,uv+d).rgb;
+   float yA=lum(A),yB=lum(B),Y=lum(result),span=yB-yA;
+   float s=clamp((Y-yA)/(abs(span)>1e-4?span:1e-4),0.,1.);
+   vec2 cA=vec2(A.b,A.r)-yA,cB=vec2(B.b,B.r)-yB,cur=vec2(result.b,result.r)-Y,pred=mix(cA,cB,s);
+   // Only a blend of both sides is treated as upsampling blur; color outside
+   // that range is real detail (thin colored lines, text) and is kept.
+   vec2 inside=step(min(cA,cB)-2./255.,cur)*step(cur,max(cA,cB)+2./255.);
+   vec2 weight=chroma*smoothstep(4./255.,12./255.,abs(span))*inside;
+   vec2 cb_cr=mix(cur,pred,weight);
+   float Bc=cb_cr.x+Y,Rc=cb_cr.y+Y;
+   result=vec3(Rc,(Y-.2126*Rc-.0722*Bc)/.7152,Bc);
+  }
+ }
+ if(detail>0.){
+  // Reuse center/cross samples; fetch only diagonals and distance-2 cross.
+  vec3 w[8]=vec3[8](at(p+vec2(-1,-1)),at(p+vec2(1,-1)),at(p+vec2(-1,1)),at(p+vec2(1,1)),at(p+vec2(2,0)),at(p-vec2(2,0)),at(p+vec2(0,2)),at(p-vec2(0,2)));
+  float lo=min(min(lum(c),min(lum(west),lum(east))),min(lum(south),lum(north))),hi=max(max(lum(c),max(lum(west),lum(east))),max(lum(south),lum(north)));
+  for(int i=0;i<4;i++){float l=lum(w[i]);lo=min(lo,l);hi=max(hi,l);}
+  // Cleanup/deband already smoothed this pixel: do not restore what they removed.
+  float untouched=1.-smoothstep(.5/255.,2./255.,peak(result-c));
+  // Luma-only detail: no colored fringes. Coring grows near strong edges so
+  // encoder ringing/mosquito noise is not amplified with real texture. The
+  // wide range (5x5 cross + ring) finds strong edges up to ~3 px away.
+  float L=lum(result),range=hi-lo,wLo=lo,wHi=hi;
+  for(int i=4;i<8;i++){float l=lum(w[i]);wLo=min(wLo,l);wHi=max(wHi,l);}
+  float fine=lum(c)-.25*(lum(west)+lum(east)+lum(south)+lum(north));
+  vec2 size=vec2(textureSize(source,0)),uv=(p+.5)/size;float ring=0.;
+  for(int i=0;i<8;i++){
+   vec2 d=i==0?vec2(3.5,.5):i==1?vec2(-3.5,-.5):i==2?vec2(.5,-3.5):i==3?vec2(-.5,3.5):i==4?vec2(2.5):i==5?vec2(-2.5):i==6?vec2(2.5,-2.5):vec2(-2.5,2.5);
+   float l=lum(texture(source,uv+d/size).rgb);ring+=l;wLo=min(wLo,l);wHi=max(wHi,l);
+  }
+  float clarity=lum(c)-ring/8.;
+  float t=1.5/255.+.06*range+.04*(wHi-wLo);
+  fine=sign(fine)*max(abs(fine)-t,0.);clarity=sign(clarity)*max(abs(clarity)-t,0.);
+  float dL=detail*untouched*(1.2*fine+.8*clarity*(1.-smoothstep(.15,.4,wHi-wLo)));
+  float margin=detail*2./255.;
+  // Bound new overshoot only; never pull an existing value back.
+  result+=clamp(L+dL,min(L,lo-margin),max(L,hi+margin))-L;
  }
  // On devices without float color targets, dither before this first quantization.
  if(quantize&&deband>0.)result+=(fract(52.9829189*fract(dot(gl_FragCoord.xy,vec2(.06711056,.00583715))))-.5)/255.;
