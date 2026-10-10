@@ -5,3 +5,4 @@ output/videos/
 output/playwright/
 .DS_Store
 android/build/
+output/eval/

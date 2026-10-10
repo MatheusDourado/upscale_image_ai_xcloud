@@ -18,11 +18,15 @@ shaders['cas']=cas
 # Bound both sharpening methods and avoid amplifying tiny low-contrast differences.
 # Only +-1 level noise/dither is excluded; real low-contrast texture keeps full gain.
 # The halo margin follows the selected strength (4/255 at 2, 12/255 at 10).
-limiter='''uniform float haloMargin;
+# Luma-only sharpening applies the luma change to all channels, so 4:2:0 color blocks
+# and chroma noise are not amplified.
+limiter='''uniform float haloMargin,noiseFloor;uniform bool lumaSharpen;
 vec3 limitSharpen(vec3 center,vec3 sharpened,vec3 lo,vec3 hi){
  float range=max(max(hi.r-lo.r,hi.g-lo.g),hi.b-lo.b);
- float detail=smoothstep(1.0/255.0,5.0/255.0,range);
- return clamp(mix(center,sharpened,detail),lo-vec3(haloMargin),hi+vec3(haloMargin));
+ float detail=smoothstep(noiseFloor,noiseFloor+4.0/255.0,range);
+ vec3 result=clamp(mix(center,sharpened,detail),lo-vec3(haloMargin),hi+vec3(haloMargin));
+ if(lumaSharpen)result=clamp(center+vec3(dot(result-center,vec3(0.2126,0.7152,0.0722))),0.0,1.0);
+ return result;
 }\n'''
 filtered=cas.replace('vec3 clarityBoost',limiter+'vec3 clarityBoost')
 bounds='min(min(min(d,e),min(f,b)),h),max(max(max(d,e),max(f,b)),h)'

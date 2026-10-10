@@ -10,7 +10,7 @@
   const sync=()=>{input.value=Math.round(settings[key]*100);text.textContent=label+' '+input.value+'%';};inputs.push(sync);sync();input.oninput=()=>{settings[key]=Number(input.value)/100;engine.resetBudget();sync();draw(true);};row.append(text,input);document.querySelector('#controls').append(row);
  }
  function draw(force=false){if(video.readyState<2)return;
-  const current={...settings,output:BxRestoration.resolveOutput(settings.output,Math.round(screen.height*(devicePixelRatio||1)),video.videoHeight)};
+  const current={...settings,output:BxRestoration.resolveOutput(settings.output,Math.round(Math.min(canvas.getBoundingClientRect().height||Infinity,(canvas.getBoundingClientRect().width||0)*video.videoHeight/video.videoWidth)*(devicePixelRatio||1))||Math.round(screen.height*(devicePixelRatio||1)),video.videoHeight)};
   const size=engine.outputSize(video.videoWidth,video.videoHeight,current),w=size.width,h=size.height;
   if(!force&&lastFrameTime===video.currentTime&&lastRevision===engine.budget.revision)return;
   const conditions=`${video.videoWidth}:${video.videoHeight}:${settings.output}`;

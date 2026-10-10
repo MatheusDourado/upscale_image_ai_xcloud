@@ -1,10 +1,10 @@
 /* Shared GPU video processing engine. GLSL assets are embedded by tools/build.py. */
 (() => {
-  const defaults = Object.freeze({mode:'filtered',cleanup:.35,deband:.3,chroma:.5,detail:.35,temporal:0,upscale:true,output:'auto',antialias:0,gpuBudget:6,sharpness:2,processing:'cas',sharpening:'native',spatialMode:'selective',processingMode:'performance',contrast:1,saturation:1,shadows:0});
+  const defaults = Object.freeze({mode:'filtered',cleanup:.35,deband:.3,chroma:.5,detail:.35,temporal:0,upscale:true,output:'auto',antialias:0,gpuBudget:6,sharpness:2,processing:'cas',sharpening:'native',spatialMode:'selective',lumaSharpen:false,noiseFloor:1,processingMode:'performance',contrast:1,saturation:1,shadows:0});
   function normalize(value={}) {
     if(!value || typeof value!=='object')value={};
     const result={...defaults};
-    if(['auto','native','1440','2160'].includes(value.output))result.output=value.output;
+    if(['auto','native','1440','2160'].includes(value.output)||/^\d{3,4}$/.test(value.output)&&value.output>=360&&value.output<=2160)result.output=String(value.output);
     if([0,3,6,10].includes(value.gpuBudget))result.gpuBudget=value.gpuBudget;
     if(['original','cas','filtered'].includes(value.mode))result.mode=value.mode;
     if(['native','rcas'].includes(value.sharpening))result.sharpening=value.sharpening;
@@ -12,18 +12,22 @@
     if(['cas','usm'].includes(value.processing))result.processing=value.processing;
     if(['performance','quality'].includes(value.processingMode))result.processingMode=value.processingMode;
     if(typeof value.upscale==='boolean')result.upscale=value.upscale;
-    for(const [key,min,max] of [['antialias',0,1],['sharpness',0,10],['cleanup',0,1],['deband',0,1],['chroma',0,1],['detail',0,1],['temporal',0,1],['contrast',.8,1.2],['saturation',0,1.3],['shadows',0,1]])
+    if(typeof value.lumaSharpen==='boolean')result.lumaSharpen=value.lumaSharpen;
+    for(const [key,min,max] of [['antialias',0,1],['sharpness',0,10],['cleanup',0,1],['deband',0,1],['chroma',0,1],['detail',0,1],['temporal',0,1],['contrast',.8,1.2],['noiseFloor',0,8],['saturation',0,1.3],['shadows',0,1]])
       if(typeof value[key]==='number'&&Number.isFinite(value[key]))result[key]=Math.min(max,Math.max(min,value[key]));
     return result;
   }
   function historyValid(previous,time,w,h){return !!previous && previous.w===w && previous.h===h && time>previous.time && time-previous.time<.25;}
-  // Output above the physical display (or HDMI mode) adds cost without resolution.
+  // Auto renders at the height the video occupies on screen in physical pixels, so
+  // FSR and sharpening happen at final size instead of the compositor's bilinear
+  // stretch (e.g. 1080p stream on a 1220-1280 px phone panel). Never above 2160p or
+  // the display (an HDMI 1080p signal stays native); steps of 8 px avoid churn.
   function resolveOutput(output,displayHeight,sourceHeight){
     if(output!=='auto')return output;
-    const height=displayHeight>=2000?2160:displayHeight>=1300?1440:0;
-    return height>sourceHeight?String(height):'native';
+    const height=Math.min(2160,Math.floor(displayHeight/8)*8);
+    return height>sourceHeight*1.04?String(height):'native';
   }
-  function outputSize(w,h,output){const height=output==='1440'?1440:output==='2160'?2160:h;return {width:Math.round(w*height/h),height};}
+  function outputSize(w,h,output){const height=/^\d+$/.test(output)?Number(output):h;return {width:Math.round(w*height/h),height};}
   function createBudget(){return {limitMs:3,values:[],p95:null,cadenceOver:0,over:0,temporalAllowed:true,debandScale:1,debandTaps:4,antialiasAllowed:true,cleanupAllowed:true,enhanceAllowed:true,outputCap:Infinity,settings:defaults,sourceHeight:1080,revision:0,reason:'',
   configure(settings,height){this.settings=normalize(settings);this.sourceHeight=height;},
   outputFor(settings){
@@ -182,7 +186,7 @@
         }else this.previous=null;
         // One sharpening stage. The CAS-only reference uses the same strength as the treatment for a fair A/B.
         const casName=s.mode==='filtered'?(s.sharpening==='rcas'?'rcas':'casFiltered'):'cas';const p=this.programs[casName];gl.useProgram(p.program);gl.uniform1i(gl.getUniformLocation(p.program,'filterId'),s.mode==='filtered'&&s.processing==='usm'?1:2);
-        this.draw(casName,null,outW,outH,{data:source},{iResolution:[outW,outH],qualityMode:s.mode==='filtered'&&s.processingMode==='quality',rcasStrength:s.sharpness/10,haloMargin:(2+s.sharpness)/255,sharpenFactor:s.mode==='original'?0:s.mode==='cas'?s.sharpness/1.2:s.sharpness/(s.processingMode==='quality'?1:1.2),brightness:1,contrast:s.mode==='filtered'?s.contrast:1,saturation:s.mode==='filtered'?s.saturation:1,shadows:s.mode==='filtered'?s.shadows:0,deband:s.mode==='filtered'?s.deband*this.budget.debandScale:0,diagnostic});
+        this.draw(casName,null,outW,outH,{data:source},{iResolution:[outW,outH],qualityMode:s.mode==='filtered'&&s.processingMode==='quality',rcasStrength:s.sharpness/10,haloMargin:(2+s.sharpness)/255,noiseFloor:s.noiseFloor/255,lumaSharpen:s.lumaSharpen,sharpenFactor:s.mode==='original'?0:s.mode==='cas'?s.sharpness/1.2:s.sharpness/(s.processingMode==='quality'?1:1.2),brightness:1,contrast:s.mode==='filtered'?s.contrast:1,saturation:s.mode==='filtered'?s.saturation:1,shadows:s.mode==='filtered'?s.shadows:0,deband:s.mode==='filtered'?s.deband*this.budget.debandScale:0,diagnostic});
         this.frames++;return true;
       }finally{
         if(q){gl.endQuery(this.ext.TIME_ELAPSED_EXT);this.queries.push({q,mode:s.mode,revision,segment});}

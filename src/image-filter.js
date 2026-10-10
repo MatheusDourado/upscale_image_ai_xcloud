@@ -6,8 +6,14 @@
  settings.contrast=1;settings.saturation=1;settings.shadows=0;
  const status={mode:'waiting',frames:0,lastFrame:0,resolution:'',error:'',gpuP95:null,measurement:'cadence',adaptation:'',fps:null};
  let activeEngine=null,activePlayer=null;
- // Physical pixels of the display/HDMI mode; stable regardless of canvas backing size.
- const displayHeight=()=>Math.round((screen?.height||0)*(window.devicePixelRatio||1));
+ // Physical pixels the video occupies on screen. The canvas CSS box is fixed by Better
+ // xCloud (object-fit contain), so this does not depend on the canvas backing size.
+ // Without layout yet, fall back to the display/HDMI mode height.
+ function displayHeight(player,w,h){
+  const dpr=window.devicePixelRatio||1,rect=player?.$canvas?.getBoundingClientRect?.();
+  if(rect&&rect.width>0&&rect.height>0&&w&&h)return Math.round(Math.min(rect.height,rect.width*h/w)*dpr);
+  return Math.round((screen?.height||0)*dpr);
+ }
  const api=window.BxImageFilter={settings,status,diagnostic:false,reset(){Object.assign(settings,BxRestoration.defaults);persist();api.diagnostic=false;activeEngine?.resetBudget();if(activePlayer){activePlayer.bxReferenceFps=null;activePlayer.bxTimes=[];activePlayer.bxCadenceMark=performance.now();}}};
  function persist(){try{localStorage.setItem(key,JSON.stringify(BxRestoration.normalize(settings)));}catch{}}
  const proto=WebGL2Player.prototype,setup=proto.setupShaders,frame=proto.updateFrame,destroy=proto.destroy;
@@ -40,7 +46,7 @@
   }
   const video=this.$video,w=video.videoWidth||video.width,h=video.videoHeight||video.height;
   if(!w||!h)return;
-  renderSettings.output=BxRestoration.resolveOutput(settings.output,displayHeight(),h);
+  const shown=displayHeight(this,w,h);renderSettings.output=BxRestoration.resolveOutput(settings.output,shown,h);
   const time=Number.isFinite(video.currentTime)?video.currentTime:performance.now()/1000;
   const count=video.getVideoPlaybackQuality?.().totalVideoFrames;
   const token=count>0?`${count}:${w}:${h}`:`${time}:${w}:${h}`;
@@ -58,7 +64,7 @@
    this.bxLastFrame=token;this.bxLastSettings=controls;
    status.mode=api.diagnostic?'diagnostic':settings.mode;status.frames=this.bxEngine.frames;status.lastFrame=Date.now();status.resolution=`${w}×${h} → ${ow}×${oh}`;
    status.gpuP95=this.bxEngine.budget.p95;status.measurement=this.bxEngine.ext?'gpu':'cadence';status.adaptation=this.bxEngine.budget.reason;
-   status.display=displayHeight();
+   status.display=shown;
    const now=performance.now();this.bxTimes.push(now);while(this.bxTimes.length>1&&now-this.bxTimes[0]>2000)this.bxTimes.shift();
    status.fps=this.bxTimes.length>1?(this.bxTimes.length-1)*1000/(now-this.bxTimes[0]):null;
    if(now-(this.bxCadenceMark||0)>2000){

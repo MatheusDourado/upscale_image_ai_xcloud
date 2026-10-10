@@ -72,16 +72,29 @@ test('ending a capture keeps the original interruption reason on export',()=>{
  const d=api().createDiagnostics();d.start();d.frame({},0);d.stop('source-changed');d.stop();assert.equal(d.report().stopReason,'source-changed');d.start();assert.equal(d.report().stopReason,null);
 });
 
-test('v8.5 auto output follows the physical display, never above it',()=>{
+test('auto output matches the on-screen video height, never above it',()=>{
  const a=api();assert.equal(a.defaults.output,'auto');
  assert.equal(a.resolveOutput('auto',1080,1080),'native');
  assert.equal(a.resolveOutput('auto',864*1.25,1080),'native');
+ assert.equal(a.resolveOutput('auto',1110,1080),'native');
+ assert.equal(a.resolveOutput('auto',1220,1080),'1216');
+ assert.equal(a.resolveOutput('auto',1280,1080),'1280');
  assert.equal(a.resolveOutput('auto',1440,1080),'1440');
  assert.equal(a.resolveOutput('auto',2160,1080),'2160');
+ assert.equal(a.resolveOutput('auto',4320,1080),'2160');
  assert.equal(a.resolveOutput('auto',2160,2160),'native');
  assert.equal(a.resolveOutput('auto',0,1080),'native');
  assert.equal(a.resolveOutput('2160',1080,1080),'2160');
  assert.equal(a.normalize({output:'auto'}).output,'auto');
+ assert.equal(a.normalize({output:'1216'}).output,'1216');
+ assert.equal(a.normalize({output:'99999'}).output,'auto');
+ assert.deepEqual(JSON.parse(JSON.stringify(a.outputSize(1920,1080,'1280'))),{width:2276,height:1280});
+});
+test('display-matched output degrades to native under overload',()=>{
+ const a=api(),s=a.normalize({output:'1280',antialias:0,deband:0,cleanup:0}),p=a.createBudget();p.configure(s,1080);
+ assert.equal(p.outputFor(s),'1280');
+ for(let i=0;i<90;i++)p.sample(20);
+ assert.equal(p.outputFor(s),'native');
 });
 test('v8.5 chroma and detail are bounded and degrade last under overload',()=>{
  const a=api(),s=a.normalize({chroma:7,detail:-1});assert.equal(s.chroma,1);assert.equal(s.detail,0);
