@@ -76,7 +76,16 @@ probe=r'''
  check(forcedPlayer.bxEngine.budget.limitMs===0,'Manual GPU policy is applied');
  BxImageFilter.settings.output='1440';forcedPlayer.updateFrame();check(forcedPlayer.$canvas.width===2560&&forcedPlayer.$canvas.height===1440,'2K output renders at 1440p');
  BxImageFilter.settings.output='native';forcedPlayer.updateFrame();check(forcedPlayer.$canvas.width===192&&forcedPlayer.$canvas.height===108,'Native output matches decoded source');
- check(forcedPlayer.gl.getError()===forcedPlayer.gl.NO_ERROR,'Forced output targets render without GL errors');forcedPlayer.destroy();
+ check(forcedPlayer.gl.getError()===forcedPlayer.gl.NO_ERROR,'Forced output targets render without GL errors');
+ check(!forcedPlayer.bxEngine.targets.scaled,'Returning to native output releases the upscale texture');
+ // Exercise automatic resolution adaptation through the actual adapter, even on a paused frame.
+ BxImageFilter.settings.gpuBudget=3;BxImageFilter.settings.output='2160';BxImageFilter.settings.temporal=0;forcedPlayer.updateFrame();
+ for(let i=0;i<90;i++)forcedPlayer.bxEngine.budget.sample(20);
+ forcedPlayer.updateFrame();check(forcedPlayer.$canvas.height===1440,'Overload redraws a paused frame at 1440p');
+ for(let i=0;i<90;i++)forcedPlayer.bxEngine.budget.sample(20);
+ forcedPlayer.updateFrame();check(forcedPlayer.$canvas.height===108,'Persistent overload returns to native source size');
+ check(BxImageFilter.settings.output==='2160','Adaptation preserves the selected output preference');
+ forcedPlayer.destroy();
  const textures=Object.values(engine.targets).map(t=>t.texture);engine.destroy();check(textures.every(t=>!gl.isTexture(t)),'GPU resources released');
  document.getElementById('result').textContent=JSON.stringify({passed:checks});
 })().catch(e=>{document.getElementById('result').textContent=JSON.stringify({error:e.message});console.error(e);});

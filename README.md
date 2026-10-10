@@ -1,13 +1,17 @@
-# Better xCloud — tratamento experimental v7
+# Better xCloud — tratamento experimental v7.1
 
 Userscript Windows/Chrome/Tampermonkey baseado no Better xCloud 6.7.12 fornecido em `script.js`. O original foi preservado. A integração anterior foi confirmada pelo diagnóstico magenta no Dell; o tratamento anterior não trouxe ganho perceptível.
+
+A v7.1 corrige as pendências de degradês, halos e movimento da v7. O caminho padrão em resolução nativa usa duas passagens de pixels na GPU (antes eram três), com nitidez e acabamento unidos. No modo Performance, os intermediários espaciais usam `RGBA8` com dithering antes da primeira quantização, preservando a distribuição dos níveis sem dobrar a memória desses buffers. No modo Qualidade e no histórico temporal opcional, usa-se `RGBA16F` quando disponível; há fallback para 8 bits. Buffers de movimento continuam em 8 bits. Isso não muda a profundidade de cor do stream ou da saída HDMI.
+
+Para o Vostro 3400 ligado à TV por HDMI 1080p, comece em **saída nativa, CAS 2, orçamento 3 ms, temporal e AA desligados**. A TV continua responsável por ampliar o sinal recebido para seu painel 4K. Forçar 4K no canvas não cria informação de uma renderização 4K do jogo, nem muda o sinal HDMI.
 
 ## Instalar
 
 1. Desative outras versões do Better xCloud no Tampermonkey. Não execute duas juntas.
 2. Substitua todo o conteúdo do script experimental por `better-xcloud-image-filter.user.js`, salve e recarregue o xCloud.
 3. Mantenha resolução **1080p HQ**, qualidade **Alta**, bitrate **Ilimitado** e renderizador **WebGL2**.
-4. Abra **Tratamento de imagem • v7** no menu do Better xCloud, na seção **Vídeo**, logo após **Nitidez**.
+4. Abra **Tratamento de imagem • v7.1** no menu do Better xCloud, na seção **Vídeo**, logo após **Nitidez**.
 5. Compare **CAS em 2** e **Novo tratamento** na mesma cena. **Vídeo original** desliga o tratamento e a nitidez.
 
 A v6 usa o controle nativo **Nitidez** (0–10), a seleção AMD CAS/USM e o modo Performance/Qualidade do Better xCloud no **Novo tratamento**. Comece com AMD CAS em 2 e aumente aos poucos. Há uma única etapa de nitidez após o tratamento e o upscale. **Referência: CAS em 2** continua fixa em 2 para comparação; **Vídeo original** não aplica nitidez.
@@ -20,9 +24,9 @@ As configurações experimentais usam uma nova chave de armazenamento, sem impor
 
 | Controle | Efeito |
 | --- | --- |
-| Compressão | Suaviza pequenos saltos entre regiões uniformes, preservando bordas fortes. Não é reconstrução por IA. |
-| Degradês | Suaviza faixas com amostragem até 8 pixels, seguida de dithering discreto. |
-| Estabilidade em movimento | Tratamento temporal experimental: estima deslocamentos até aproximadamente 40 pixels usando quadros anteriores. Rejeita correspondências ruins e cortes. |
+| Compressão | Suaviza pequenos saltos entre regiões uniformes; protege bordas fortes e extremos locais de textura. Não é reconstrução por IA. |
+| Degradês | Suaviza faixas com amostragem até 8 pixels, preservação de textura fina e dithering na quantização. |
+| Estabilidade em movimento | Tratamento temporal experimental: busca grosseira até aproximadamente 40 pixels e refinamento local em passos de meio pixel. Rejeita correspondências ruins e cortes. |
 | Resolução de saída | Nativa (1080p quando essa for a fonte), 2K/1440p ou 4K/2160p. Mantém a proporção da fonte; os tamanhos indicados assumem 16:9. FSR 1 EASU amplia quando a saída supera a fonte, independentemente do tamanho da janela. |
 | Antialiasing | Suavização direcional de bordas inclinadas após o temporal e antes do upscale/nitidez. Inicia desligado; experimente 25–50%. Não é MSAA/TAA do jogo. |
 | Tratamento na GPU | Adaptar acima de 3, 6 ou 10 ms, ou manter todos os filtros ativos sem redução automática. |
@@ -33,9 +37,11 @@ Valores iniciais: compressão 35%, degradês 30%, temporal **desligado**, contra
 
 ## Desempenho e limites
 
-O painel informa quadros, cadência e, quando disponível, tempo GPU total no percentil 95. A medição GPU inclui upload e todos os passes: é um limite conservador, não uma medição isolada de custo adicional. Acima do limite escolhido (3 ms por padrão) sustentado, desativa temporal primeiro e reduz degradês em seguida. **Manter todos os filtros ativos** mantém os valores selecionados, mesmo com tempo GPU alto ou cadência baixa. Todo o processamento dos pixels já ocorre na GPU via WebGL2; essa opção não aumenta o clock nem altera a GPU escolhida pelo Chrome. Não desativa automaticamente o upscale ou a correção de compressão; se houver queda restante, escolha CAS em 2.
+O painel informa quadros, cadência e, quando disponível, tempo GPU total no percentil 95. A medição GPU inclui os comandos de upload e todos os passes: é um limite conservador, não uma medição isolada de custo adicional. Acima do limite escolhido (3 ms por padrão) sustentado, reduz apenas etapas ativas nesta ordem: temporal; saída ampliada (2160p → 1440p → nativa, quando acima da fonte); AA; degradês (quatro amostras → duas → desligado); limpeza de compressão. As preferências salvas são preservadas, e o painel mostra a resolução efetiva. Texturas que deixam de ser necessárias são liberadas.
 
-Sem timers GPU, a adaptação compara cadência com um trecho previamente medido em CAS/original. Sem essa referência, informa apenas cadência. Uma redução maior que 5% por três janelas de dois segundos reduz os mesmos tratamentos. Não confundir isso com medição de latência dos controles.
+**Manter todos os filtros ativos** impede essas reduções automáticas. Ajustar um controle do tratamento ou restaurá-lo reinicia a adaptação; ela não aumenta novamente a carga por conta própria. Todo o processamento dos pixels ocorre na GPU via WebGL2; essa opção não aumenta o clock nem altera a GPU escolhida pelo Chrome. A nitidez final permanece ativa conforme o controle nativo. CAS e USM têm limite de halos, e diferenças locais muito pequenas recebem menos reforço para evitar amplificar ruído.
+
+Sem timers GPU, a adaptação compara cadência com um trecho previamente medido em CAS/original. Sem essa referência, informa apenas cadência. Uma redução maior que 5% por três janelas de dois segundos reduz os mesmos tratamentos. A referência é mantida quando a saída cai automaticamente, mas é invalidada por mudanças de fonte, resolução selecionada ou alvo de FPS. Não confundir isso com medição de latência dos controles.
 
 O filtro processa quadros novos e não aguarda quadros futuros. Não controla o bitrate enviado pelo servidor, não recupera garantidamente texturas apagadas e não implementa FSR temporal de jogos nem IA. A seleção de saída chega a 2160p. Forçar 4K usa quatro vezes mais pixels que 1080p em várias etapas e pode reduzir a fluidez. Se o Windows enviar sinal de 1080p para a TV, o resultado 4K será reduzido para esse sinal; o userscript não muda a resolução do Windows/HDMI. Para exibir 4K físico, configure a saída do Windows em 3840×2160, se suportada pelo equipamento e conexão.
 
@@ -62,9 +68,11 @@ Requer FFmpeg com libx264. Gera `output/videos/reference.mp4` e versões com alv
 node --test tests/*.cjs
 node --check better-xcloud-image-filter.user.js
 python3 tools/browser-harness.py
+python3 tools/regression-harness.py
+python3 tools/quality-harness.py
 ```
 
-Com o servidor acima, abra `/output/playwright/filter-harness.html`. Testa shaders reais, modos, degradês, limites de halo, corte, preto, upscale, diagnóstico e liberação de recursos. O player permite validar reprodução de vídeo, exportação e ajustes.
+Com o servidor acima, abra `/output/playwright/filter-harness.html`, `/output/playwright/regressions-v7.html` e `/output/playwright/motion-quality.html`. Testam shaders reais, modos, dithering, preservação de textura, halos CAS/USM, corte, preto, upscale, adaptação, diagnóstico e liberação de recursos. Ao desenvolver, desative o cache no navegador para não medir um bundle anterior. O player permite validar reprodução de vídeo, exportação e ajustes.
 
 Consulte `docs/validation-v3.md` para os resultados e as pendências. Mudança em pixels não comprova melhora visual. A aprovação de ganho em Hellblade e teste de pelo menos dez minutos no Dell continuam necessários; não há evidência para prometer que essa versão resolve o problema.
 
@@ -80,7 +88,7 @@ Não adicionar sharpening de outro aplicativo sobre o resultado sem compará-lo 
 
 ## Verificação de movimento v4
 
-`python3 tools/quality-harness.py` gera `/output/playwright/motion-quality.html`. Compara erro em textura não periódica limpa e ruidosa, usando a mesma etapa de nitidez, em deslocamentos de 0, 4, 8, 16 e 32 pixels por quadro. É um teste de redução de ruído em movimento, não uma prova de recuperação de detalhes descartados pelo xCloud.
+`python3 tools/quality-harness.py` gera `/output/playwright/motion-quality.html`. Compara erro em textura não periódica limpa e ruidosa, usando a mesma etapa de nitidez, em deslocamentos de 0 a 8, 16 e 32 pixels por quadro. Exige redução de erro de pelo menos 15% em cada caso. É um teste de redução de ruído em movimento, não uma prova de recuperação de detalhes descartados pelo xCloud.
 
 ## Teste com imagens reais de Hellblade
 

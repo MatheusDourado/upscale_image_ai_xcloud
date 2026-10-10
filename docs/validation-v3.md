@@ -87,3 +87,44 @@ Antialiasing direcional próprio, opcional e desligado por padrão: detecta bord
 Política GPU: limiares de 3, 6, 10 ms ou manual (0), mantendo a medição p95. Manual impede reduções automáticas por tempo GPU e cadência; não desativa a rejeição temporal de correspondências ruins. As etapas de pixels já rodam na GPU em todas as políticas.
 
 Doze testes Node e 40 verificações WebGL/DOM passaram. O Chrome renderizou targets 3840×2160 e 2560×1440 independentemente da janela menor, retornou à saída nativa e não apresentou erros GL. Isso comprova tamanho interno e execução; não comprova fluidez 4K no Dell nem resolução física recebida pela TV. A avaliação visual de AA em Hellblade permanece pendente.
+
+## Versão 6.7.12-imagefilter.7.1 — correções para GPU integrada
+
+Revisão e implementação em 2026-10-09 (horário de São Paulo), sobre `1b33753`.
+
+### Defeitos reproduzidos antes das correções
+
+- Num degrau cinza 100/120 e nitidez máxima, USM produziu extremos 86/134 no modo Performance e 83/137 no modo Qualidade. Só o CAS tinha o limite de halos.
+- A cadeia nativa quantizava o resultado espacial e a nitidez para RGBA8 antes do dithering. Uma coluna de borda suavizada permaneceu inteiramente no nível 57; o ruído final não recuperava sua distribuição fracionária.
+- Debanding a 100% reduziu uma linha fina de cinza 104 sobre fundo 100 para 101, apagando textura de baixo contraste.
+- O teste temporal original cobria apenas múltiplos de quatro pixels. Ao incluir 2 e 6 pixels por quadro, a redução de erro ficou em 6,82% e 7,13%, abaixo do limiar de 15% do harness.
+- A adaptação desativava temporal mesmo quando ele já estava desligado, não limitava a resolução/AA e mantinha a mesma quantidade de amostras no primeiro nível reduzido de debanding.
+
+### Alterações verificadas
+
+- Nitidez e acabamento executam juntos. Configuração padrão nativa: duas passagens; tratamentos espaciais/temporal/AA desligados: uma passagem. CAS e original também não precisam do intermediário final.
+- CAS e USM respeitam o intervalo local com margem de quatro níveis. Diferenças locais muito pequenas recebem menos nitidez; a limpeza espacial protege reversões de gradiente, sem um mapa ou passagem de classificação adicional.
+- Performance usa intermediários espaciais RGBA8 com dithering antes da primeira quantização. Qualidade usa RGBA16F quando suportado; o histórico temporal também usa essa precisão quando disponível. Movimento, corte e imagens reduzidas continuam em RGBA8. Testado o fallback de Qualidade forçando a ausência da extensão de float targets.
+- A borda suavizada agora distribui os níveis 57 e 58 em ambos os caminhos. A linha fina permanece em 104. Esse teste comprova o funcionamento da quantização e a preservação dessa textura sintética, não a qualidade perceptual de todo vídeo.
+- Movimento recebe refinamento na resolução original em passos de um pixel e meio pixel, calculado somente no campo reduzido de vetores. Codificação RGBA8 preserva zero e passos de meio pixel exatamente. Amostras do quadro atual são reutilizadas entre candidatos. O campo continua baseado em blocos; não é optical flow denso nem TAA do jogo.
+- Sob sobrecarga sustentada, apenas tratamentos ativos são reduzidos: temporal, resolução ampliada, AA, amostras de debanding e limpeza. Preferências salvas permanecem intactas. Timings de uma etapa de adaptação anterior não provocam imediatamente outra redução. O modo manual impede todas essas reduções.
+- Redução de resolução funciona através do adaptador inclusive num quadro pausado. Voltar à resolução nativa libera a textura ampliada. Desligar tratamentos libera seus intermediários. Alterar os controles reinicia orçamento/histórico; não há recuperação automática de carga para evitar oscilações.
+
+### Verificação local
+
+16 testes Node, 44 verificações de integração WebGL/DOM e 12 regressões de pixels/passagens/memória passaram. A compilação dos shaders reais e as verificações de sintaxe do userscript, adaptador, motor e player passaram.
+
+O harness temporal passou nos 11 deslocamentos: 0–8, 16 e 32 pixels/quadro. Redução de MSE observada: aproximadamente 17,0% em 2 pixels, 18,7% em 6 pixels, 38,2% em 4 pixels e 34,4% em 32 pixels. Cada comparação usa a mesma nitidez na referência limpa e nos modos comparados da versão atual. Como a nitidez e a precisão também mudaram, esses números não isolam o ganho do novo estimador frente à v7.
+
+Foi feita uma amostragem curta de custo em Chrome/ANGLE Metal, **Apple M4**, fonte canvas 1920×1080, 150 quadros por configuração, orçamento manual e últimas 60 amostras GPU. Não inclui decode de vídeo nem mede latência de controle:
+
+| Motor | Temporal desligado, GPU p95 | Temporal 30%, GPU p95 |
+| --- | --- | --- |
+| v7 (`1b33753`) | 2,71 ms | 5,43 ms |
+| v7.1 final, Performance | 2,74 ms | 5,30 ms |
+
+O custo foi semelhante nessa execução; menos passagens **não comprovaram ganho de velocidade**. Uma primeira variante com buffers espaciais de 16 bits por padrão mediu 2,97 ms; por isso essa precisão foi reservada ao modo Qualidade e ao histórico opcional. Não extrapolar esses tempos para a Intel Iris Xe.
+
+Reprodução: gerar os três harnesses descritos no README e abrir suas páginas com cache desativado. `python3 tools/performance-harness.py` gera `/output/playwright/cost-v7.html`; adicionar `?baseline` usa o bundle da v7 extraído do Git. Alternar as versões sob as mesmas condições. Os testes existentes de Hellblade não foram repetidos: os vídeos usados anteriormente não são distribuídos pelo Git.
+
+Permanecem necessárias a avaliação visual de gameplay real e a medição sustentada no Dell. Temporal e AA continuam desligados por padrão; saída nativa, CAS 2, Performance e orçamento de 3 ms são o ponto inicial. Nenhuma reconstrução por IA, supersampling adicional ou alteração de decoder foi introduzida.

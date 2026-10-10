@@ -1,18 +1,21 @@
 (() => {
  const video=document.querySelector('#video'),canvas=document.querySelector('#canvas'),status=document.querySelector('#status');
  const settings=BxRestoration.normalize(),gl=canvas.getContext('webgl2',{alpha:false,antialias:false,preserveDrawingBuffer:false});
- let engine,url,diagnostic=false,callback=null,lastFrameTime=null,drawCount=0,start=0,cadence=[],cadenceMark=0,referenceFps=null;
+ let engine,url,diagnostic=false,callback=null,lastFrameTime=null,lastRevision=-1,sourceConditions='',drawCount=0,start=0,cadence=[],cadenceMark=0,referenceFps=null;
  function invalidateCadence(){referenceFps=null;cadence=[];cadenceMark=performance.now();}
  try{if(!gl)throw new Error('WebGL2 indisponível');engine=new BxRestoration.Engine(gl,BxShaders);}catch(e){status.textContent=e.message;return;}
  const inputs=[];
  for(const [key,label,min,max]of [['antialias','Antialiasing',0,100],['cleanup','Compressão',0,100],['deband','Degradês',0,100],['temporal','Temporal',0,100],['contrast','Contraste',80,120],['saturation','Saturação',0,130],['shadows','Sombras',0,100]]){
   const row=document.createElement('label'),text=document.createElement('span'),input=document.createElement('input');input.type='range';input.min=min;input.max=max;
-  const sync=()=>{input.value=Math.round(settings[key]*100);text.textContent=label+' '+input.value+'%';};inputs.push(sync);sync();input.oninput=()=>{settings[key]=Number(input.value)/100;sync();draw(true);};row.append(text,input);document.querySelector('#controls').append(row);
+  const sync=()=>{input.value=Math.round(settings[key]*100);text.textContent=label+' '+input.value+'%';};inputs.push(sync);sync();input.oninput=()=>{settings[key]=Number(input.value)/100;engine.resetBudget();sync();draw(true);};row.append(text,input);document.querySelector('#controls').append(row);
  }
- function draw(force=false){if(video.readyState<2)return;if(!force&&lastFrameTime===video.currentTime){engine.poll();return;}
-  const size=BxRestoration.outputSize(video.videoWidth,video.videoHeight,settings.output),w=size.width,h=size.height;
-  if(canvas.width!==w||canvas.height!==h){canvas.width=w;canvas.height=h;engine.resetHistory();invalidateCadence();}
-  try{engine.render(video,w,h,settings,video.currentTime,diagnostic);lastFrameTime=video.currentTime;drawCount++;
+ function draw(force=false){if(video.readyState<2)return;
+  const size=engine.outputSize(video.videoWidth,video.videoHeight,settings),w=size.width,h=size.height;
+  if(!force&&lastFrameTime===video.currentTime&&lastRevision===engine.budget.revision)return;
+  const conditions=`${video.videoWidth}:${video.videoHeight}:${settings.output}`;
+  if(conditions!==sourceConditions){sourceConditions=conditions;invalidateCadence();}
+  if(canvas.width!==w||canvas.height!==h){canvas.width=w;canvas.height=h;engine.resetHistory();}
+  try{engine.render(video,w,h,settings,video.currentTime,diagnostic);lastFrameTime=video.currentTime;lastRevision=engine.budget.revision;drawCount++;
    if(!force){const now=performance.now();cadence.push(now);while(cadence.length>1&&now-cadence[0]>2000)cadence.shift();
     if(now-cadenceMark>2000&&cadence.length>2){const fps=(cadence.length-1)*1000/(now-cadence[0]);if(settings.mode!=='filtered')referenceFps=fps;else if(!engine.ext)engine.budget.cadence(referenceFps,fps);cadenceMark=now;}}
    if(!start)start=performance.now();
@@ -25,7 +28,7 @@
  document.querySelector('#file').onchange=e=>{if(url)URL.revokeObjectURL(url);const file=e.target.files[0];if(file){url=URL.createObjectURL(file);video.src=url;start=0;drawCount=0;invalidateCadence();}};
  document.querySelector('#play').onclick=()=>video.paused?video.play().catch(e=>status.textContent=e.message):video.pause();
  document.querySelector('#mode').onchange=e=>{settings.mode=e.target.value;cadence=[];cadenceMark=performance.now();engine.resetHistory();draw(true);};
- document.querySelector('#scale').onchange=e=>{settings.output=e.target.value;engine.resetHistory();draw(true);};
+ document.querySelector('#scale').onchange=e=>{settings.output=e.target.value;engine.resetBudget();draw(true);};
  document.querySelector('#gpuBudget').onchange=e=>{settings.gpuBudget=Number(e.target.value);engine.resetBudget();draw(true);};
  document.querySelector('#reset').onclick=()=>{Object.assign(settings,BxRestoration.defaults);diagnostic=false;for(const sync of inputs)sync();document.querySelector('#mode').value=settings.mode;document.querySelector('#scale').value=settings.output;document.querySelector('#gpuBudget').value=String(settings.gpuBudget);engine.resetBudget();invalidateCadence();draw(true);};
  document.querySelector('#diagnostic').onclick=()=>{diagnostic=!diagnostic;draw(true);};

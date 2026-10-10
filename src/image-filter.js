@@ -42,11 +42,13 @@
   const time=Number.isFinite(video.currentTime)?video.currentTime:performance.now()/1000;
   const count=video.getVideoPlaybackQuality?.().totalVideoFrames;
   const token=count>0?`${count}:${w}:${h}`:`${time}:${w}:${h}`;
-  const controls=JSON.stringify(renderSettings)+api.diagnostic;
+  const size=this.bxEngine.outputSize(w,h,renderSettings),ow=size.width,oh=size.height;
+  const controls=JSON.stringify(renderSettings)+api.diagnostic+':'+this.bxEngine.budget.revision;
   if(this.bxMode!==settings.mode){this.bxTimes=[];this.bxCadenceMark=performance.now();this.bxMode=settings.mode;}
   if(this.bxLastFrame===token&&this.bxLastSettings===controls){this.bxEngine.poll();return;}
-  const size=BxRestoration.outputSize(w,h,settings.output),ow=size.width,oh=size.height;
-  const conditions=`${w}:${h}:${ow}:${oh}:${this.targetFps}`;
+  // Keep the reference cadence when the budget reduces output automatically.
+  // Only user-selected output/source/FPS changes invalidate the comparison.
+  const conditions=`${w}:${h}:${settings.output}:${this.targetFps}`;
   if(this.bxConditions!==conditions){this.bxReferenceFps=null;this.bxTimes=[];this.bxCadenceMark=performance.now();this.bxConditions=conditions;}
   if(this.$canvas.width!==ow||this.$canvas.height!==oh){this.$canvas.width=ow;this.$canvas.height=oh;this.bxEngine.resetHistory();}
   try{
@@ -74,7 +76,7 @@
   if(controlsPanel){parent.append(controlsPanel);return;}
   if(parent.querySelector('[data-bx-restoration]'))return;
   const panel=controlsPanel=document.createElement('div');panel.dataset.bxRestoration='v7';
-  const title=document.createElement('p');title.textContent='Tratamento de imagem • v7';panel.append(title);
+  const title=document.createElement('p');title.textContent='Tratamento de imagem • v7.1';panel.append(title);
   function row(label,control){
    const wrapper=document.createElement('label');wrapper.className='bx-settings-row';
    const text=document.createElement('span');text.className='bx-settings-label';text.textContent=label;
@@ -88,7 +90,7 @@
    const input=document.createElement('input');input.type='range';input.min=0;input.max=100;input.step=1;input.className='bx-focusable';input.setAttribute('aria-label',label);
    const text=row(label,input);
    const sync=()=>{input.value=Math.round(settings[name]*100);text.textContent=`${label}: ${input.value}%`;};sync();inputs.push(sync);
-   input.oninput=()=>{settings[name]=Number(input.value)/100;sync();persist();};
+   input.oninput=()=>{settings[name]=Number(input.value)/100;activeEngine?.resetBudget();sync();persist();};
   }
   function selection(label,name,options){
    const select=document.createElement('select');select.className='bx-focusable';select.setAttribute('aria-label',label);

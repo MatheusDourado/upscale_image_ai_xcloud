@@ -1,5 +1,6 @@
 #version 300 es
 precision highp float;
+precision highp sampler2D;
 uniform sampler2D source, previous;
 out vec4 fragColor;
 void main(){float difference=0.;for(int y=0;y<16;y++)for(int x=0;x<16;x++){

@@ -1,5 +1,6 @@
 #version 300 es
 precision highp float;
+precision highp sampler2D;
 uniform sampler2D source, history, motion;
 uniform float temporal;
 out vec4 fragColor;
@@ -10,7 +11,7 @@ void main(){
   vec3 n=texture(source,uv+vec2(x,y)/size).rgb;lo=min(lo,n);hi=max(hi,n);
  }
  vec3 field=texture(motion,uv).rgb;
- vec2 offset=round((field.xy-.5)*20.)*4.;
+ vec2 offset=(round(field.xy*255.)-128.)*.5;
  vec2 prevUV=uv+offset/size;
  vec3 old=texture(history,prevUV).rgb;
  float disagreement=max(max(abs(old.r-c.r),abs(old.g-c.g)),abs(old.b-c.b));
