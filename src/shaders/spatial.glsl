@@ -2,7 +2,7 @@
 precision highp float;
 precision highp sampler2D;
 uniform sampler2D source;
-uniform float cleanup, deband, debandTaps, chroma, detail;
+uniform float cleanup, deband, debandTaps, chroma, detail, antialias;
 uniform bool quantize,selective;
 out vec4 fragColor;
 float peak(vec3 c){return max(max(abs(c.r),abs(c.g)),abs(c.b));}
@@ -97,6 +97,22 @@ void main(){
   float margin=detail*2./255.;
   // Bound new overshoot only; never pull an existing value back.
   result+=clamp(L+dL,min(L,lo-margin),max(L,hi+margin))-L;
+ }
+ if(antialias>0.){
+  // Same directional AA as antialias.glsl, fused here when temporal is off:
+  // saves a full-frame pass and render target (memory bandwidth on iGPUs).
+  // Direction and blend come from the source; the blend is applied as a delta.
+  float nw=lum(at(p+vec2(-1,1))),ne=lum(at(p+vec2(1,1))),sw=lum(at(p+vec2(-1,-1))),se=lum(at(p+vec2(1,-1)));
+  float mid=lum(c),lo=min(mid,min(min(nw,ne),min(sw,se))),hi=max(mid,max(max(nw,ne),max(sw,se)));
+  vec2 dir=vec2(-(nw+ne-sw-se),nw+sw-ne-se);
+  float major=max(abs(dir.x),abs(dir.y));
+  float weight=antialias*smoothstep(.04,.15,hi-lo)*smoothstep(.05,.35,min(abs(dir.x),abs(dir.y))/max(major,1e-5));
+  if(weight>0.){
+   vec2 size=vec2(textureSize(source,0)),uv=(p+.5)/size,d=dir/max(major,1e-5)/size*.5;
+   vec3 smoothColor=(texture(source,uv-d).rgb+texture(source,uv+d).rgb)*.5;
+   float sl=lum(smoothColor);
+   if(sl>=lo&&sl<=hi)result+=(smoothColor-c)*weight;
+  }
  }
  // On devices without float color targets, dither before this first quantization.
  if(quantize&&deband>0.)result+=(fract(52.9829189*fract(dot(gl_FragCoord.xy,vec2(.06711056,.00583715))))-.5)/255.;

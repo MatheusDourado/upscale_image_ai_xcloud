@@ -15,9 +15,12 @@ html = r'''<!doctype html><meta charset="utf-8"><pre id="result">Running</pre>
  function step(a,b){ctx.fillStyle=`rgb(${a},${a},${a})`;ctx.fillRect(0,0,64,96);ctx.fillStyle=`rgb(${b},${b},${b})`;ctx.fillRect(64,0,64,96);}
  step(100,120);
  for(const processing of ['cas','usm','rcas'])for(const processingMode of ['performance','quality']){
-  const p=render({processing,sharpening:processing==='rcas'?'rcas':'native',processingMode,sharpness:10});const edge=[];
-  for(let x=60;x<68;x++)edge.push(p[(40*128+x)*4]);
-  check(Math.min(...edge)>=96&&Math.max(...edge)<=124,'Halo bound '+processing+' '+processingMode,edge);
+  // Halo margin scales with strength: +-4 levels at 2 (previous fixed bound), +-12 at 10.
+  for(const [sharpness,margin] of [[2,4],[10,12]]){
+   const p=render({processing,sharpening:processing==='rcas'?'rcas':'native',processingMode,sharpness});const edge=[];
+   for(let x=60;x<68;x++)edge.push(p[(40*128+x)*4]);
+   check(Math.min(...edge)>=100-margin&&Math.max(...edge)<=120+margin,'Halo bound '+processing+' '+processingMode+' '+sharpness,edge);
+  }
  }
  // An averaged compression boundary has a fractional code value before presentation.
  step(50,62);const p=render({cleanup:1,deband:.3});
@@ -74,8 +77,16 @@ html = r'''<!doctype html><meta charset="utf-8"><pre id="result">Running</pre>
  render({cleanup:.35,deband:.3,chroma:.5,detail:.35,sharpness:2});
  check(passes.length<=2,'Default native pipeline uses at most two passes',passes);
  passes=[];render({sharpening:'rcas',sharpness:2,cleanup:.35,deband:.3});check(passes.length===2,'RCAS retains two passes',passes);
+ passes=[];render({cleanup:.35,deband:1,chroma:.5,detail:.35,antialias:1,sharpness:2});check(passes.length===2&&!passes.includes('antialias'),'AA is fused into the spatial pass without temporal',passes);
+ passes=[];render({antialias:1,temporal:.3},2);check(passes.includes('antialias'),'Temporal keeps AA as a separate pass after history',passes);
  passes=[];render({});check(passes.length===1,'Disabled treatments bypass intermediate passes',passes);
  check(Object.keys(engine.targets).length===0,'Disabled treatments release unused intermediate textures',Object.keys(engine.targets));
+ {let seed=7;const rnd=()=>(seed=(seed*1103515245+12345)%2147483648)/2147483648;
+  for(let y=0;y<96;y+=2)for(let x=0;x<128;x+=2){const v=Math.round(110+(rnd()*2-1)*8);ctx.fillStyle=`rgb(${v},${v},${v})`;ctx.fillRect(x,y,2,2);}
+  const hp=(b,i)=>4*b[i]-b[i-4]-b[i+4]-b[i-512]-b[i+512];const src=render({mode:'original'});
+  const gain=b=>{let s=0,r=0;for(let y=4;y<92;y++)for(let x=4;x<124;x++){const i=(y*128+x)*4;s+=hp(b,i)*hp(src,i);r+=hp(src,i)**2;}return s/r;};
+  const ref=gain(render({mode:'cas',sharpness:2})),two=gain(render({sharpness:2})),six=gain(render({sharpness:6}));
+  check(two>=ref*.7&&six>ref,'Filtered sharpness reaches beyond the CAS-only reference at the same scale',{ref,two,six});}
  // Force the optional float-target capability off; this still uses real WebGL rendering.
  const getExtension=gl.getExtension.bind(gl);gl.getExtension=name=>name==='EXT_color_buffer_float'?null:getExtension(name);
  const fallback=new BxRestoration.Engine(gl,BxShaders);gl.getExtension=getExtension;

@@ -32,9 +32,8 @@
   if(!this.bxEngine){fallback(this);return;}
   if(this.isStopped)return;
   const renderSettings={...settings};
+  // Sharpness comes from this panel (0–10, steps of 0.5), shared by the treatment and the CAS-only reference.
   if(typeof getStreamPref==='function'){
-   const sharpness=getStreamPref('video.processing.sharpness');
-   if(Number.isFinite(sharpness))renderSettings.sharpness=sharpness;
    const processing=getStreamPref('video.processing'),mode=getStreamPref('video.processing.mode');
    if(['cas','usm'].includes(processing))renderSettings.processing=processing;
    if(['quality','performance'].includes(mode))renderSettings.processingMode=mode;
@@ -79,17 +78,23 @@
  function mountControls(parent){
   if(controlsPanel){parent.append(controlsPanel);return;}
   if(parent.querySelector('[data-bx-restoration]'))return;
-  const panel=controlsPanel=document.createElement('div');panel.dataset.bxRestoration='v8.5';
-  const title=document.createElement('p');title.textContent='Tratamento de imagem • v8.5';panel.append(title);
+  const panel=controlsPanel=document.createElement('div');panel.dataset.bxRestoration='v8.6';
+  const title=document.createElement('p');title.textContent='Tratamento de imagem • v8.6';panel.append(title);
   function row(label,control){
    const wrapper=document.createElement('label');wrapper.className='bx-settings-row';
    const text=document.createElement('span');text.className='bx-settings-label';text.textContent=label;
    wrapper.append(text,control);panel.append(wrapper);return text;
   }
   const choose=document.createElement('select');choose.className='bx-focusable';choose.setAttribute('aria-label','Comparação');
-  for(const [value,label]of [['original','Vídeo original'],['cas','Referência: CAS em 2'],['filtered','Novo tratamento']]){const option=document.createElement('option');option.value=value;option.textContent=label;choose.append(option);}
+  for(const [value,label]of [['original','Vídeo original'],['cas','Referência: só CAS (mesma nitidez)'],['filtered','Novo tratamento']]){const option=document.createElement('option');option.value=value;option.textContent=label;choose.append(option);}
   choose.value=settings.mode;choose.onchange=()=>{settings.mode=choose.value;persist();};row('Comparação',choose);
   const inputs=[];
+  {
+   const input=document.createElement('input');input.type='range';input.min=0;input.max=10;input.step=.5;input.className='bx-focusable';input.setAttribute('aria-label','Nitidez');
+   const text=row('Nitidez',input);
+   const sync=()=>{input.value=settings.sharpness;text.textContent=`Nitidez: ${settings.sharpness===0?'desligada':settings.sharpness.toFixed(1)}`;};sync();inputs.push(sync);
+   input.oninput=()=>{settings.sharpness=Number(input.value);activeEngine?.resetBudget();sync();persist();};
+  }
   for(const [name,label]of [['cleanup','Compressão'],['deband','Degradês'],['chroma','Cor nas bordas'],['detail','Detalhe'],['temporal','Estabilidade em movimento'],['antialias','Antialiasing']]){
    const input=document.createElement('input');input.type='range';input.min=0;input.max=100;input.step=1;input.className='bx-focusable';input.setAttribute('aria-label',label);
    const text=row(label,input);
@@ -121,7 +126,7 @@
   panel.append(measure,exportReport);
   const reset=document.createElement('button');reset.className='bx-focusable';reset.textContent='Restaurar tratamento';reset.onclick=()=>{api.reset();for(const sync of inputs)sync();choose.value=settings.mode;syncDiagnostic();};panel.append(reset);
   const report=document.createElement('p');report.setAttribute('role','status');panel.append(report);
-  const note=document.createElement('p');note.textContent='A intensidade usa Nitidez acima; RCAS tem escala própria e substitui CAS/USM. Comece em saída Automática, CAS 2 e 6 ms. Cor nas bordas alinha a cor 4:2:0 às bordas da luma; Detalhe realça textura só na luma, sem realçar ruído fraco. A medição exporta tempos GPU e contadores disponíveis; não mede latência do controle. Tratamento salvo para todos os jogos.';panel.append(note);
+  const note=document.createElement('p');note.textContent='Nitidez deste painel vale para o tratamento e para a referência só CAS (o controle nativo de Nitidez não é usado aqui); CAS/USM e Performance/Qualidade seguem o menu nativo. RCAS tem escala própria. Comece em saída Automática, Nitidez 3–5 e 6 ms. Degradês altos e Antialiasing suavizam textura: use 30–50% e 0–25%. Cor nas bordas alinha a cor 4:2:0 às bordas da luma; Detalhe realça textura só na luma, sem realçar ruído fraco. A medição exporta tempos GPU e contadores disponíveis; não mede latência do controle. Tratamento salvo para todos os jogos.';panel.append(note);
   // Explicit 2K/4K above the display (e.g. 1080p HDMI to a 4K TV) is scaled back down by the browser.
   const outputWarning=()=>settings.mode==='filtered'&&['1440','2160'].includes(settings.output)&&status.display&&Number(settings.output)>status.display*1.1?`Tela/HDMI em ${status.display}p: saída maior só aumenta custo. Use Automática.\n`:'';
   let interval=null;

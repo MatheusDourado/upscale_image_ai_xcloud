@@ -2,12 +2,12 @@
 <style>body{margin:24px;background:#10151c;color:#edf2f7;font:15px system-ui}h1{font-size:24px}button,input,select{margin:6px;padding:7px}main{display:grid;grid-template-columns:1fr 1fr;gap:16px}video,canvas{width:100%;background:black}fieldset{margin-top:18px;border:1px solid #536175}label{display:inline-block;margin:8px}#status{white-space:pre-wrap}small{color:#bdc8d4}@media(max-width:700px){main{grid-template-columns:1fr}}</style>
 <h1>Comparar vídeo recebido e tratamento</h1><p>Abra um arquivo de vídeo local. Os dois lados usam o mesmo instante; à esquerda está a fonte, à direita o modo escolhido.</p>
 <input id="file" type="file" accept="video/*"><button id="play">Reproduzir / pausar</button><button id="export">Exportar quadro tratado</button>
-<label>Comparação <select id="mode"><option value="filtered">Novo tratamento</option><option value="cas">CAS em 2</option><option value="original">Sem filtro</option></select></label>
+<label>Comparação <select id="mode"><option value="filtered">Novo tratamento</option><option value="cas">Só CAS (mesma intensidade)</option><option value="original">Sem filtro</option></select></label>
 <label>Saída <select id="scale"><option value="auto">Automática (tela)</option><option value="native">Nativa</option><option value="1440">2K — 1440p</option><option value="2160">4K — 2160p</option></select></label>
 <label>GPU <select id="gpuBudget"><option value="3">Adaptar acima de 3 ms</option><option value="6" selected>Adaptar acima de 6 ms</option><option value="10">Adaptar acima de 10 ms</option><option value="0">Manter todos os filtros ativos</option></select></label>
 <label>Limpeza <select id="spatialMode"><option value="selective">Seletiva v8</option><option value="legacy">Referência v7.1</option></select></label>
 <label>Nitidez final <select id="sharpening"><option value="native">CAS</option><option value="rcas">RCAS experimental</option></select></label>
-<label>Intensidade <input id="sharpness" type="range" min="0" max="10" step="1" value="2"></label>
+<label>Intensidade <input id="sharpness" type="range" min="0" max="10" step="0.5" value="2"></label>
 <button id="measure">Iniciar medição</button><button id="report">Encerrar e exportar medição</button>
 <main><section><h2>Fonte decodificada</h2><video id="video" controls muted playsinline></video></section><section><h2>Resultado</h2><canvas id="canvas"></canvas></section></main>
 <fieldset id="controls"><legend>Tratamento</legend></fieldset><button id="reset">Restaurar</button><button id="diagnostic">Diagnóstico magenta</button><p id="status" role="status">Selecione um vídeo.</p>

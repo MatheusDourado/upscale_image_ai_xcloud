@@ -24,7 +24,7 @@ precision highp sampler2D;
 // Exact guarded reciprocals replace AMD approximations. Local halo limiter is ours.
 uniform sampler2D data;
 uniform vec2 outputSize;
-uniform float rcasStrength,contrast,saturation,shadows,deband;
+uniform float rcasStrength,haloMargin,contrast,saturation,shadows,deband;
 uniform bool diagnostic;
 out vec4 fragColor;
 /* FINISH_COLOR */
@@ -45,8 +45,8 @@ void main(){
   float lobe=max(-.1875,min(max(max(lobes.r,lobes.g),lobes.b),0.))*rcasStrength*noise;
   c=(lobe*(b+d+f+h)+e)/(4.*lobe+1.);
   vec3 lo=min(mn,e),hi=max(mx,e);
-  float detail=smoothstep(2./255.,12./255.,max(max(hi.r-lo.r,hi.g-lo.g),hi.b-lo.b));
-  c=clamp(mix(e,c,detail),lo-4./255.,hi+4./255.);
+  float detail=smoothstep(1./255.,5./255.,max(max(hi.r-lo.r,hi.g-lo.g),hi.b-lo.b));
+  c=clamp(mix(e,c,detail),lo-haloMargin,hi+haloMargin);
  }
  float l=dot(c,vec3(.299,.587,.114));c=mix(vec3(l),c,saturation);c=contrast*(c-.5)+.5;
  fragColor=vec4(finishColor(c),1);
