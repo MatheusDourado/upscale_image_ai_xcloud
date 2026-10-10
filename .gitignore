@@ -4,3 +4,4 @@ __pycache__/
 output/videos/
 output/playwright/
 .DS_Store
+android/build/

@@ -16,6 +16,10 @@ A v7.1 corrige as pendências de degradês, halos e movimento da v7. O caminho p
 
 Para o Vostro 3400 ligado à TV por HDMI 1080p, comece em **saída Automática (resolve para nativa), Nitidez 3–5 no painel, orçamento 6 ms, Cor nas bordas 50%, Detalhe 35%, Degradês 30–50%, temporal e AA desligados**. A TV continua responsável por ampliar o sinal recebido para seu painel 4K. Forçar 4K no canvas não cria informação de uma renderização 4K do jogo, nem muda o sinal HDMI.
 
+## Android (v8.6.5)
+
+Há um APK de teste em `android/dist/xcloud-imagefilter-8.6.5.apk`: um app WebView próprio que abre o xCloud com este userscript (v8.6). Veja [android/README.md](android/README.md).
+
 ## Instalar
 
 1. Desative outras versões do Better xCloud no Tampermonkey. Não execute duas juntas.
