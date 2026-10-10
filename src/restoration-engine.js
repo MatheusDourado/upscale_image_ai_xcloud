@@ -1,12 +1,14 @@
 /* Shared GPU video processing engine. GLSL assets are embedded by tools/build.py. */
 (() => {
-  const defaults = Object.freeze({mode:'filtered',cleanup:.35,deband:.3,temporal:0,upscale:true,output:'native',antialias:0,gpuBudget:3,sharpness:2,processing:'cas',processingMode:'performance',contrast:1,saturation:1,shadows:0});
+  const defaults = Object.freeze({mode:'filtered',cleanup:.35,deband:.3,temporal:0,upscale:true,output:'native',antialias:0,gpuBudget:3,sharpness:2,processing:'cas',sharpening:'native',spatialMode:'selective',processingMode:'performance',contrast:1,saturation:1,shadows:0});
   function normalize(value={}) {
     if(!value || typeof value!=='object')value={};
     const result={...defaults};
     if(['native','1440','2160'].includes(value.output))result.output=value.output;
     if([0,3,6,10].includes(value.gpuBudget))result.gpuBudget=value.gpuBudget;
     if(['original','cas','filtered'].includes(value.mode))result.mode=value.mode;
+    if(['native','rcas'].includes(value.sharpening))result.sharpening=value.sharpening;
+    if(['selective','legacy'].includes(value.spatialMode))result.spatialMode=value.spatialMode;
     if(['cas','usm'].includes(value.processing))result.processing=value.processing;
     if(['performance','quality'].includes(value.processingMode))result.processingMode=value.processingMode;
     if(typeof value.upscale==='boolean')result.upscale=value.upscale;
@@ -50,10 +52,39 @@
     this.over=this.limitMs>0&&this.p95>this.limitMs?this.over+1:0;
     if(this.over>=30){this.degrade();this.over=0;}
   }};}
+  function createDiagnostics(){
+    let recording=false,segments=[],current=null,count=0,disjoints=0,started=null,ended=null,stopReason=null,metadata={};
+    const percentile=(a,p)=>a.length?a[Math.ceil(a.length*p)-1]:null;
+    return {
+      get active(){return recording;},
+      start(meta={}){recording=true;segments=[];current=null;count=0;disjoints=0;started=Date.now();ended=null;stopReason=null;metadata=meta;},
+      stop(reason=null){if(!recording)return;recording=false;ended=Date.now();stopReason=reason;},
+      frame(config,time){if(!recording)return null;const key=JSON.stringify(config);
+        if(current?.key!==key){if(segments.length>=256){this.stop();return null;}current={key,config,frames:0,first:time,last:time,gpu:[]};segments.push(current);}
+        current.frames++;current.last=time;return current;
+      },
+      sample(segment,ms){if(!segment||!segments.includes(segment)||!Number.isFinite(ms)||ms<0)return;
+        if(count>=120000)return;segment.gpu.push(ms);count++;
+      },
+      disjoint(){if(recording)disjoints++;},
+      report(){return {schema:1,version:'8',build:globalThis.BxBuild??null,started,ended,stopReason,recording,metadata,disjoints,sampleLimit:120000,truncated:count>=120000||segments.length>=256,
+        segments:segments.map(({config,frames,first,last,gpu})=>{const sorted=[...gpu].sort((a,b)=>a-b);return {config,frames,durationMs:last-first,drawFps:last>first?(frames-1)*1000/(last-first):null,gpu:{count:gpu.length,p50:percentile(sorted,.5),p95:percentile(sorted,.95),p99:percentile(sorted,.99),samplesMs:[...gpu]}};})};}
+    };
+  }
+  async function captureVideoStats(video,peer){
+    const quality=video?.getVideoPlaybackQuality?.();
+    const result={time:Date.now(),video:video?{width:video.videoWidth,height:video.videoHeight,currentTime:video.currentTime,totalVideoFrames:quality?.totalVideoFrames??null,droppedVideoFrames:quality?.droppedVideoFrames??null}:null,rtc:[]};
+    if(peer?.getStats)try{const stats=await peer.getStats();stats.forEach(item=>{
+      if(item.type!=='inbound-rtp'||item.kind!=='video')return;
+      const row={};for(const key of ['id','timestamp','ssrc','framesDecoded','framesDropped','framesReceived','totalDecodeTime','jitterBufferDelay','jitterBufferEmittedCount','freezeCount','totalFreezesDuration','bytesReceived','packetsReceived','packetsLost','jitter'])row[key]=item[key]??null;
+      const codec=stats.get(item.codecId);row.codec=codec?{mimeType:codec.mimeType,sdpFmtpLine:codec.sdpFmtpLine}:null;result.rtc.push(row);
+    });}catch{result.rtcUnavailable=true;}return result;
+  }
+  function downloadReport(report){const url=URL.createObjectURL(new Blob([JSON.stringify(report,null,2)],{type:'application/json'})),a=document.createElement('a');a.href=url;a.download='bx-v8-diagnostics-'+Date.now()+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
   const vertex='#version 300 es\nlayout(location=0) in vec2 position;void main(){gl_Position=vec4(position,0,1);}';
   class Engine {
     constructor(gl,shaders){
-      this.gl=gl;this.programs={};this.targets={};this.queries=[];this.budget=createBudget();this.previous=null;this.frames=0;this.ext=gl.getExtension('EXT_disjoint_timer_query_webgl2');
+      this.gl=gl;this.programs={};this.targets={};this.queries=[];this.budget=createBudget();this.previous=null;this.frames=0;this.diagnostics=createDiagnostics();this.ext=gl.getExtension('EXT_disjoint_timer_query_webgl2');
       this.floatTargets=!!gl.getExtension('EXT_color_buffer_float');
       try {
         this.vao=gl.createVertexArray();gl.bindVertexArray(this.vao);this.buffer=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,this.buffer);
@@ -90,9 +121,9 @@
       gl.drawArrays(gl.TRIANGLES,0,3);
     }
     poll(){const gl=this.gl;if(!this.ext)return;
-      if(gl.getParameter(this.ext.GPU_DISJOINT_EXT)){for(const item of this.queries)gl.deleteQuery(item.q);this.queries=[];return;}
+      if(gl.getParameter(this.ext.GPU_DISJOINT_EXT)){for(const item of this.queries)gl.deleteQuery(item.q);this.queries=[];this.diagnostics.disjoint();return;}
       while(this.queries.length&&gl.getQueryParameter(this.queries[0].q,gl.QUERY_RESULT_AVAILABLE)){
-        const item=this.queries.shift();if(item.revision===this.budget.revision)this.budget.sample(gl.getQueryParameter(item.q,gl.QUERY_RESULT)/1e6,item.mode);gl.deleteQuery(item.q);}
+        const item=this.queries.shift();if(item.revision===this.budget.revision){const ms=gl.getQueryParameter(item.q,gl.QUERY_RESULT)/1e6;this.budget.sample(ms,item.mode);this.diagnostics.sample(item.segment,ms);}gl.deleteQuery(item.q);}
     }
     outputSize(w,h,settings){
       if(this.budget.limitMs!==settings.gpuBudget){this.resetBudget();this.budget.limitMs=settings.gpuBudget;}
@@ -106,6 +137,8 @@
       this.budget.configure(s,h);
       this.poll();let q=null;
       const revision=this.budget.revision;
+      const filtered=s.mode==='filtered';
+      const segment=this.diagnostics.active?this.diagnostics.frame({settings:s,diagnostic,source:[w,h],output:[outW,outH],revision,effective:{temporal:filtered&&s.temporal>0&&this.budget.temporalAllowed,cleanup:filtered&&this.budget.cleanupAllowed?s.cleanup:0,deband:filtered?s.deband*this.budget.debandScale:0,debandTaps:filtered&&s.deband>0?this.budget.debandTaps:0,antialias:filtered&&this.budget.antialiasAllowed?s.antialias:0}},performance.now()):null;
       this.usedTargets=new Set();
       if(this.ext&&this.queries.length<4){q=gl.createQuery();gl.beginQuery(this.ext.TIME_ELAPSED_EXT,q);}
       try{
@@ -116,7 +149,7 @@
           const cleanup=this.budget.cleanupAllowed?s.cleanup:0,deband=s.deband*this.budget.debandScale;
           if(cleanup>0||deband>0){
             const spatial=this.target('spatial',w,h,s.processingMode==='quality');
-            this.draw('spatial',spatial,w,h,{source},{cleanup,deband,debandTaps:this.budget.debandTaps,quantize:!spatial.fp});source=spatial.texture;
+            this.draw('spatial',spatial,w,h,{source},{cleanup,deband,debandTaps:this.budget.debandTaps,quantize:!spatial.fp,selective:s.spatialMode==='selective'});source=spatial.texture;
           }
           const temporalEnabled=s.temporal>0&&this.budget.temporalAllowed;
           if(temporalEnabled){
@@ -138,11 +171,11 @@
           if(s.upscale&&outW>w&&outH>h){const scaled=this.target('scaled',outW,outH,s.processingMode==='quality');this.draw('easu',scaled,outW,outH,{source});source=scaled.texture;}
         }else this.previous=null;
         // One sharpening stage; filtered mode follows native Better xCloud controls. CAS reference stays at 2.
-        const casName=s.mode==='filtered'?'casFiltered':'cas';const p=this.programs[casName];gl.useProgram(p.program);gl.uniform1i(gl.getUniformLocation(p.program,'filterId'),s.mode==='filtered'&&s.processing==='usm'?1:2);
-        this.draw(casName,null,outW,outH,{data:source},{iResolution:[outW,outH],qualityMode:s.mode==='filtered'&&s.processingMode==='quality',sharpenFactor:s.mode==='original'?0:s.mode==='cas'?2/1.2:s.sharpness/(s.processingMode==='quality'?1:1.2),brightness:1,contrast:s.mode==='filtered'?s.contrast:1,saturation:s.mode==='filtered'?s.saturation:1,shadows:s.mode==='filtered'?s.shadows:0,deband:s.mode==='filtered'?s.deband*this.budget.debandScale:0,diagnostic});
+        const casName=s.mode==='filtered'?(s.sharpening==='rcas'?'rcas':'casFiltered'):'cas';const p=this.programs[casName];gl.useProgram(p.program);gl.uniform1i(gl.getUniformLocation(p.program,'filterId'),s.mode==='filtered'&&s.processing==='usm'?1:2);
+        this.draw(casName,null,outW,outH,{data:source},{iResolution:[outW,outH],qualityMode:s.mode==='filtered'&&s.processingMode==='quality',rcasStrength:s.sharpness/10,sharpenFactor:s.mode==='original'?0:s.mode==='cas'?2/1.2:s.sharpness/(s.processingMode==='quality'?1:1.2),brightness:1,contrast:s.mode==='filtered'?s.contrast:1,saturation:s.mode==='filtered'?s.saturation:1,shadows:s.mode==='filtered'?s.shadows:0,deband:s.mode==='filtered'?s.deband*this.budget.debandScale:0,diagnostic});
         this.frames++;return true;
       }finally{
-        if(q){gl.endQuery(this.ext.TIME_ELAPSED_EXT);this.queries.push({q,mode:s.mode,revision});}
+        if(q){gl.endQuery(this.ext.TIME_ELAPSED_EXT);this.queries.push({q,mode:s.mode,revision,segment});}
         for(const [name,t] of Object.entries(this.targets))if(!this.usedTargets.has(name)){
           gl.deleteTexture(t.texture);gl.deleteFramebuffer(t.fbo);delete this.targets[name];
         }
@@ -159,5 +192,5 @@
       gl.deleteTexture(this.input);gl.deleteBuffer(this.buffer);gl.deleteVertexArray(this.vao);this.targets={};this.programs={};this.queries=[];
     }
   }
-  globalThis.BxRestoration={Engine,defaults,normalize,historyValid,createBudget,outputSize};
+  globalThis.BxRestoration={createDiagnostics,captureVideoStats,downloadReport,Engine,defaults,normalize,historyValid,createBudget,outputSize};
 })();

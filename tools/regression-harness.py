@@ -14,8 +14,8 @@ html = r'''<!doctype html><meta charset="utf-8"><pre id="result">Running</pre>
  function render(s,time=1){engine.render(input,128,96,{gpuBudget:0,cleanup:0,deband:0,sharpness:0,...s},time);return pixels();}
  function step(a,b){ctx.fillStyle=`rgb(${a},${a},${a})`;ctx.fillRect(0,0,64,96);ctx.fillStyle=`rgb(${b},${b},${b})`;ctx.fillRect(64,0,64,96);}
  step(100,120);
- for(const processing of ['cas','usm'])for(const processingMode of ['performance','quality']){
-  const p=render({processing,processingMode,sharpness:10});const edge=[];
+ for(const processing of ['cas','usm','rcas'])for(const processingMode of ['performance','quality']){
+  const p=render({processing,sharpening:processing==='rcas'?'rcas':'native',processingMode,sharpness:10});const edge=[];
   for(let x=60;x<68;x++)edge.push(p[(40*128+x)*4]);
   check(Math.min(...edge)>=96&&Math.max(...edge)<=124,'Halo bound '+processing+' '+processingMode,edge);
  }
@@ -31,10 +31,27 @@ html = r'''<!doctype html><meta charset="utf-8"><pre id="result">Running</pre>
  ctx.fillStyle='rgb(104,104,104)';ctx.fillRect(64,0,1,96);
  const texture=render({deband:1});
  check(Math.abs(texture[(40*128+64)*4]-104)<=1,'Debanding preserves low-contrast thin texture',texture[(40*128+64)*4]);
+ // Isoluminant colored fine text can evade a luma-only extremum detector.
+ ctx.fillStyle='rgb(100,100,100)';ctx.fillRect(0,0,128,96);
+ ctx.fillStyle='rgb(108,98,100)';ctx.fillRect(64,0,1,96);
+ const legacy=render({deband:1,spatialMode:'legacy'}),selective=render({deband:1});
+ check(Math.abs(selective[(40*128+64)*4]-108)<Math.abs(legacy[(40*128+64)*4]-108),'Selective cleanup protects isoluminant color detail',{legacy:legacy[(40*128+64)*4],selective:selective[(40*128+64)*4]});
+ // Constant ramp must not be interpreted as a block discontinuity.
+ for(let x=0;x<128;x++){ctx.fillStyle=`rgb(${50+x},${50+x},${50+x})`;ctx.fillRect(x,0,1,96);}
+ const ramp=render({cleanup:1});
+ check(Array.from({length:100},(_,x)=>ramp[(40*128+x+14)*4]===64+x).every(Boolean),'Cleanup preserves continuous ramp');
+ for(const level of [0,100,255]){
+  ctx.fillStyle=`rgb(${level},${level},${level})`;ctx.fillRect(0,0,128,96);
+  const uniform=render({sharpening:'rcas',sharpness:10});
+  check(uniform.every((v,i)=>i%4===3||Math.abs(v-level)<=1),'RCAS uniform '+level);
+ }
+ step(100,120);const bypass=render({sharpening:'rcas',sharpness:0});
+ check(bypass[(40*128+63)*4]===100&&bypass[(40*128+64)*4]===120,'RCAS zero strength bypass');
  // Count real draw submissions to protect the low-cost default and bypass paths.
  const draw=engine.draw.bind(engine);let passes=[];engine.draw=(name,...args)=>{passes.push(name);return draw(name,...args);};
  render({cleanup:.35,deband:.3,sharpness:2});
  check(passes.length<=2,'Default native pipeline uses at most two passes',passes);
+ passes=[];render({sharpening:'rcas',sharpness:2,cleanup:.35,deband:.3});check(passes.length===2,'RCAS retains two passes',passes);
  passes=[];render({});check(passes.length===1,'Disabled treatments bypass intermediate passes',passes);
  check(Object.keys(engine.targets).length===0,'Disabled treatments release unused intermediate textures',Object.keys(engine.targets));
  // Force the optional float-target capability off; this still uses real WebGL rendering.

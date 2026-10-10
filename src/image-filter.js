@@ -75,8 +75,8 @@
  function mountControls(parent){
   if(controlsPanel){parent.append(controlsPanel);return;}
   if(parent.querySelector('[data-bx-restoration]'))return;
-  const panel=controlsPanel=document.createElement('div');panel.dataset.bxRestoration='v7';
-  const title=document.createElement('p');title.textContent='Tratamento de imagem • v7.1';panel.append(title);
+  const panel=controlsPanel=document.createElement('div');panel.dataset.bxRestoration='v8';
+  const title=document.createElement('p');title.textContent='Tratamento de imagem • v8';panel.append(title);
   function row(label,control){
    const wrapper=document.createElement('label');wrapper.className='bx-settings-row';
    const text=document.createElement('span');text.className='bx-settings-label';text.textContent=label;
@@ -98,14 +98,26 @@
    const sync=()=>select.value=String(settings[name]);sync();inputs.push(sync);
    select.onchange=()=>{settings[name]=name==='gpuBudget'?Number(select.value):select.value;activeEngine?.resetBudget();persist();};row(label,select);
   }
+  selection('Limpeza espacial','spatialMode',[['selective','Seletiva v8'],['legacy','Referência v7.1']]);
+  selection('Nitidez final','sharpening',[['native','CAS / USM nativo'],['rcas','RCAS experimental']]);
   selection('Resolução de saída','output',[['native','1080p / nativa com tratamento'],['1440','2K — 2560 × 1440'],['2160','4K — 3840 × 2160']]);
   selection('Tratamento na GPU','gpuBudget',[['3','Adaptar acima de 3 ms'],['6','Adaptar acima de 6 ms'],['10','Adaptar acima de 10 ms'],['0','Manter todos os filtros ativos']]);
   const diagnostic=document.createElement('button');diagnostic.className='bx-focusable';
   const syncDiagnostic=()=>diagnostic.textContent=api.diagnostic?'Encerrar diagnóstico':'Diagnóstico: colorir imagem';syncDiagnostic();
   diagnostic.onclick=()=>{api.diagnostic=!api.diagnostic;syncDiagnostic();};panel.append(diagnostic);
+  const measure=document.createElement('button');measure.className='bx-focusable';measure.textContent='Iniciar medição';
+  const exportReport=document.createElement('button');exportReport.className='bx-focusable';exportReport.textContent='Encerrar e exportar medição';
+  const peer=()=>typeof STATES==='undefined'?null:STATES.currentStream?.peerConnection;
+  measure.onclick=async()=>{const engine=activeEngine,video=activePlayer?.$video;if(!engine)return;measure.disabled=true;
+   try{const initial=await BxRestoration.captureVideoStats(video,peer());if(activeEngine===engine){engine.diagnostics.start({userAgent:navigator.userAgent,renderer:engine.gl.getParameter(engine.gl.RENDERER),timer:!!engine.ext,floatTargets:engine.floatTargets,initial});measure.textContent='Reiniciar medição';}}
+   finally{measure.disabled=false;}};
+  exportReport.onclick=async()=>{const engine=activeEngine;if(!engine)return;exportReport.disabled=true;
+   try{engine.poll();engine.diagnostics.stop();const report=engine.diagnostics.report();report.final=await BxRestoration.captureVideoStats(activePlayer?.$video,peer());BxRestoration.downloadReport(report);}
+   finally{exportReport.disabled=false;}};
+  panel.append(measure,exportReport);
   const reset=document.createElement('button');reset.className='bx-focusable';reset.textContent='Restaurar tratamento';reset.onclick=()=>{api.reset();for(const sync of inputs)sync();choose.value=settings.mode;syncDiagnostic();};panel.append(reset);
   const report=document.createElement('p');report.setAttribute('role','status');panel.append(report);
-  const note=document.createElement('p');note.textContent='A nitidez e o modo AMD usam os controles do Better xCloud acima. FSR 1 amplia para a saída escolhida; CAS aplica nitidez. 4K exige sinal 4K do Windows para chegar à TV sem redução. Tratamento salvo para todos os jogos.';panel.append(note);
+  const note=document.createElement('p');note.textContent='A intensidade usa Nitidez acima; RCAS tem escala própria e substitui CAS/USM. Comece em saída nativa, CAS 2 e 3 ms. A medição exporta tempos GPU e contadores disponíveis; não mede latência do controle. Tratamento salvo para todos os jogos.';panel.append(note);
   let interval=null;
   const refresh=()=>{
    syncDiagnostic();

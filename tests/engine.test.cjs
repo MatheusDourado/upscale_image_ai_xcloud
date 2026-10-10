@@ -50,3 +50,24 @@ test('explicit output below source resolution is retained before adaptation',()=
  const a=api(),s=a.normalize({output:'1440'}),p=a.createBudget();p.configure(s,2160);
  assert.equal(p.outputFor(s),'1440');
 });
+
+test('v8 settings keep native sharpening and allow isolated legacy comparison',()=>{
+ const a=api();assert.equal(a.defaults.sharpening,'native');assert.equal(a.defaults.spatialMode,'selective');
+ assert.equal(a.normalize({sharpening:'rcas',spatialMode:'legacy'}).sharpening,'rcas');
+ assert.equal(a.normalize({sharpening:'bad',spatialMode:'bad'}).spatialMode,'selective');
+});
+test('diagnostics are opt-in, segment settings and compute percentiles without mixing modes',()=>{
+ const d=api().createDiagnostics();assert.equal(d.frame({},0),null);d.start({test:true});
+ const a=d.frame({mode:'cas'},0);d.frame({mode:'cas'},1000);for(let i=1;i<=100;i++)d.sample(a,i);
+ const b=d.frame({mode:'filtered'},1100);d.sample(b,2);d.disjoint();d.sample(b,NaN);d.stop();
+ const r=d.report();assert.equal(r.segments.length,2);assert.equal(r.segments[0].gpu.p95,95);assert.equal(r.segments[1].gpu.count,1);assert.equal(r.disjoints,1);assert.equal(d.frame({},2000),null);
+ d.start();d.sample(a,123);assert.equal(d.report().segments.length,0);
+});
+test('video stats export only allowlisted video counters, no addresses',async()=>{
+ const a=api(),rows=new Map([['v',{id:'v',type:'inbound-rtp',kind:'video',framesDecoded:20,codecId:'c',address:'private'}],['c',{mimeType:'video/H264',sdpFmtpLine:'profile-level-id=42e01f'}],['ip',{type:'candidate-pair',address:'private'}]]);
+ const r=await a.captureVideoStats({videoWidth:1920,videoHeight:1080,currentTime:1,getVideoPlaybackQuality:()=>({totalVideoFrames:20,droppedVideoFrames:1})},{getStats:async()=>rows});
+ assert.equal(r.rtc.length,1);assert.equal(r.rtc[0].framesDecoded,20);assert.equal(r.rtc[0].codec.mimeType,'video/H264');assert.ok(!JSON.stringify(r).includes('private'));
+});
+test('ending a capture keeps the original interruption reason on export',()=>{
+ const d=api().createDiagnostics();d.start();d.frame({},0);d.stop('source-changed');d.stop();assert.equal(d.report().stopReason,'source-changed');d.start();assert.equal(d.report().stopReason,null);
+});

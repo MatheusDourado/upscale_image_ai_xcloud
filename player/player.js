@@ -25,12 +25,15 @@
  function loop(){draw();callback=video.requestVideoFrameCallback?video.requestVideoFrameCallback(loop):requestAnimationFrame(loop);}
  video.addEventListener('loadeddata',()=>{engine.resetHistory();lastFrameTime=null;draw(true);if(callback===null)loop();});
  for(const event of ['seeking','pause','emptied'])video.addEventListener(event,()=>{engine.resetHistory();lastFrameTime=null;invalidateCadence();});
- document.querySelector('#file').onchange=e=>{if(url)URL.revokeObjectURL(url);const file=e.target.files[0];if(file){url=URL.createObjectURL(file);video.src=url;start=0;drawCount=0;invalidateCadence();}};
+ document.querySelector('#file').onchange=e=>{if(url)URL.revokeObjectURL(url);const file=e.target.files[0];if(file){engine.diagnostics.stop('source-changed');url=URL.createObjectURL(file);video.src=url;start=0;drawCount=0;invalidateCadence();}};
  document.querySelector('#play').onclick=()=>video.paused?video.play().catch(e=>status.textContent=e.message):video.pause();
  document.querySelector('#mode').onchange=e=>{settings.mode=e.target.value;cadence=[];cadenceMark=performance.now();engine.resetHistory();draw(true);};
  document.querySelector('#scale').onchange=e=>{settings.output=e.target.value;engine.resetBudget();draw(true);};
  document.querySelector('#gpuBudget').onchange=e=>{settings.gpuBudget=Number(e.target.value);engine.resetBudget();draw(true);};
- document.querySelector('#reset').onclick=()=>{Object.assign(settings,BxRestoration.defaults);diagnostic=false;for(const sync of inputs)sync();document.querySelector('#mode').value=settings.mode;document.querySelector('#scale').value=settings.output;document.querySelector('#gpuBudget').value=String(settings.gpuBudget);engine.resetBudget();invalidateCadence();draw(true);};
+ for(const key of ['spatialMode','sharpening','sharpness'])document.querySelector('#'+key).onchange=e=>{settings[key]=key==='sharpness'?Number(e.target.value):e.target.value;engine.resetBudget();draw(true);};
+ document.querySelector('#measure').onclick=async()=>{engine.diagnostics.start({userAgent:navigator.userAgent,renderer:gl.getParameter(gl.RENDERER),timer:!!engine.ext,floatTargets:engine.floatTargets,initial:await BxRestoration.captureVideoStats(video)});};
+ document.querySelector('#report').onclick=async()=>{engine.poll();engine.diagnostics.stop();const report=engine.diagnostics.report();report.final=report.stopReason==='source-changed'?null:await BxRestoration.captureVideoStats(video);BxRestoration.downloadReport(report);};
+ document.querySelector('#reset').onclick=()=>{Object.assign(settings,BxRestoration.defaults);diagnostic=false;for(const sync of inputs)sync();for(const key of ['spatialMode','sharpening','sharpness'])document.querySelector('#'+key).value=settings[key];document.querySelector('#mode').value=settings.mode;document.querySelector('#scale').value=settings.output;document.querySelector('#gpuBudget').value=String(settings.gpuBudget);engine.resetBudget();invalidateCadence();draw(true);};
  document.querySelector('#diagnostic').onclick=()=>{diagnostic=!diagnostic;draw(true);};
  document.querySelector('#export').onclick=()=>{
   draw(true);if(video.readyState<2)return;

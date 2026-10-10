@@ -1,5 +1,5 @@
 from pathlib import Path
-import json,re
+import json,re,hashlib
 source=Path('script.js').read_text()
 assert '// @version      6.7.12' in source
 marker='class VideoPlayer extends BaseStreamPlayer'
@@ -11,6 +11,7 @@ cas=cas.replace('precision mediump float;','precision highp float;\nprecision hi
 shaders={p.stem:p.read_text() for p in Path('src/shaders').glob('*.glsl')}
 # Fuse finishing into sharpening to avoid a full-frame pass and RGBA8 rounding.
 finish=shaders['finish'].split('vec3 finishColor',1)[1].split('void main()',1)[0]
+shaders['rcas']=shaders['rcas'].replace('/* FINISH_COLOR */','vec3 finishColor'+finish)
 cas=cas.replace('vec3 clarityBoost', 'uniform float shadows,deband;uniform bool diagnostic;\nvec3 finishColor'+finish+'\nvec3 clarityBoost')
 cas=cas.replace('fragColor = vec4(color, 1.0);','fragColor = vec4(finishColor(color), 1.0);')
 shaders['cas']=cas
@@ -27,7 +28,10 @@ for expression in ['e + (e - gaussianBlur) * sharpenFactor / 3.0','mix(e, outCol
     assert filtered.count(needle)==1
     filtered=filtered.replace(needle,'return limitSharpen(e,'+expression+','+bounds+');')
 shaders['casFiltered']=filtered
-bundle='globalThis.BxShaders='+json.dumps(shaders)+';\n'+Path('src/restoration-engine.js').read_text()
+inputs=[Path('script.js'),Path('tools/build.py'),*sorted(Path('src').rglob('*.*'))]
+fingerprint=hashlib.sha256(b''.join(str(p).encode()+b'\0'+p.read_bytes() for p in inputs if p.is_file())).hexdigest()
+build='globalThis.BxBuild='+json.dumps({'version':'6.7.12-imagefilter.8','sourceSha256':fingerprint})+';\n'
+bundle=build+'globalThis.BxShaders='+json.dumps(shaders)+';\n'+Path('src/restoration-engine.js').read_text()
 Path('output/restoration.bundle.js').parent.mkdir(parents=True,exist_ok=True)
 Path('output/restoration.bundle.js').write_text(bundle)
 # Repair upstream singleton lifecycle: a destroyed canvas must be recreated next session.
@@ -38,8 +42,8 @@ menu='\"video.processing.sharpness\",\"video.saturation\"'
 assert source.count(menu)==1
 source=source.replace(menu,'\"video.processing.sharpness\",($parent) => {window.BxImageFilter.mountControls($parent);},\"video.saturation\"')
 source=source.replace(marker,bundle+'\n'+Path('src/image-filter.js').read_text()+'\n'+marker)
-source=source.replace('// @name         Better xCloud','// @name         Better xCloud — Image Filter Experimental').replace('// @version      6.7.12','// @version      6.7.12-imagefilter.7.1')
+source=source.replace('// @name         Better xCloud','// @name         Better xCloud — Image Filter Experimental').replace('// @version      6.7.12','// @version      6.7.12-imagefilter.8')
 source='\n'.join(line for line in source.split('\n') if not line.startswith(('// @updateURL','// @downloadURL')))
 source=source.replace('// @grant        none','// @grant        none\n// @updateURL    none\n// @downloadURL  none').replace('CheckForUpdate: !0','CheckForUpdate: !1',1)
 Path('better-xcloud-image-filter.user.js').write_text(source)
-print('Built userscript v7.1 and shared player bundle')
+print('Built userscript v8 and shared player bundle')

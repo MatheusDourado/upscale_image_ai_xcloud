@@ -5,6 +5,10 @@
 <label>Comparação <select id="mode"><option value="filtered">Novo tratamento</option><option value="cas">CAS em 2</option><option value="original">Sem filtro</option></select></label>
 <label>Saída <select id="scale"><option value="native">Nativa</option><option value="1440">2K — 1440p</option><option value="2160">4K — 2160p</option></select></label>
 <label>GPU <select id="gpuBudget"><option value="3">Adaptar acima de 3 ms</option><option value="6">Adaptar acima de 6 ms</option><option value="10">Adaptar acima de 10 ms</option><option value="0">Manter todos os filtros ativos</option></select></label>
+<label>Limpeza <select id="spatialMode"><option value="selective">Seletiva v8</option><option value="legacy">Referência v7.1</option></select></label>
+<label>Nitidez final <select id="sharpening"><option value="native">CAS</option><option value="rcas">RCAS experimental</option></select></label>
+<label>Intensidade <input id="sharpness" type="range" min="0" max="10" step="1" value="2"></label>
+<button id="measure">Iniciar medição</button><button id="report">Encerrar e exportar medição</button>
 <main><section><h2>Fonte decodificada</h2><video id="video" controls muted playsinline></video></section><section><h2>Resultado</h2><canvas id="canvas"></canvas></section></main>
 <fieldset id="controls"><legend>Tratamento</legend></fieldset><button id="reset">Restaurar</button><button id="diagnostic">Diagnóstico magenta</button><p id="status" role="status">Selecione um vídeo.</p>
 <small>Temporal experimental inicia desligado. Cores naturais. Esta página compartilha o motor WebGL2 do userscript. YouTube não é incorporado: utilize um arquivo local obtido com autorização.</small>

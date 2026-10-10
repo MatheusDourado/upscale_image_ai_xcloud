@@ -1,6 +1,12 @@
-# Better xCloud — tratamento experimental v7.1
+# Better xCloud — tratamento experimental v8
 
 Userscript Windows/Chrome/Tampermonkey baseado no Better xCloud 6.7.12 fornecido em `script.js`. O original foi preservado. A integração anterior foi confirmada pelo diagnóstico magenta no Dell; o tratamento anterior não trouxe ganho perceptível.
+
+A v8 acrescenta **limpeza seletiva de cor/textura**, comparação com a limpeza v7.1, **RCAS experimental** como alternativa à nitidez nativa e exportação de diagnósticos. O padrão permanece em duas passagens WebGL2, CAS 2, saída nativa, Performance e orçamento 3 ms; temporal e AA desligados. Veja [pesquisa](docs/research-v8.md), [validação v8](docs/validation-v8.md) e [fontes/licenças v8](docs/third-party-v8.md).
+
+Em **Limpeza espacial**, alterne Seletiva v8 / Referência v7.1 para comparar. Em **Nitidez final**, RCAS substitui CAS/USM, usa o mesmo controle de intensidade com outra escala e continua opcional. Não há comprovação de superioridade geral ou ganho sustentado na Iris Xe.
+
+Use **Iniciar medição** e **Encerrar e exportar medição** no menu ou player para baixar um JSON local com o build, configurações, tempos GPU e contadores disponíveis. A captura é optativa, separa mudanças de configuração e não mede latência do controle. Exporte antes de encerrar a sessão. O player encerra a captura ao trocar de arquivo. A validação física no Dell segue pendente.
 
 A v7.1 corrige as pendências de degradês, halos e movimento da v7. O caminho padrão em resolução nativa usa duas passagens de pixels na GPU (antes eram três), com nitidez e acabamento unidos. No modo Performance, os intermediários espaciais usam `RGBA8` com dithering antes da primeira quantização, preservando a distribuição dos níveis sem dobrar a memória desses buffers. No modo Qualidade e no histórico temporal opcional, usa-se `RGBA16F` quando disponível; há fallback para 8 bits. Buffers de movimento continuam em 8 bits. Isso não muda a profundidade de cor do stream ou da saída HDMI.
 
@@ -11,7 +17,7 @@ Para o Vostro 3400 ligado à TV por HDMI 1080p, comece em **saída nativa, CAS 2
 1. Desative outras versões do Better xCloud no Tampermonkey. Não execute duas juntas.
 2. Substitua todo o conteúdo do script experimental por `better-xcloud-image-filter.user.js`, salve e recarregue o xCloud.
 3. Mantenha resolução **1080p HQ**, qualidade **Alta**, bitrate **Ilimitado** e renderizador **WebGL2**.
-4. Abra **Tratamento de imagem • v7.1** no menu do Better xCloud, na seção **Vídeo**, logo após **Nitidez**.
+4. Abra **Tratamento de imagem • v8** no menu do Better xCloud, na seção **Vídeo**, logo após **Nitidez**.
 5. Compare **CAS em 2** e **Novo tratamento** na mesma cena. **Vídeo original** desliga o tratamento e a nitidez.
 
 A v6 usa o controle nativo **Nitidez** (0–10), a seleção AMD CAS/USM e o modo Performance/Qualidade do Better xCloud no **Novo tratamento**. Comece com AMD CAS em 2 e aumente aos poucos. Há uma única etapa de nitidez após o tratamento e o upscale. **Referência: CAS em 2** continua fixa em 2 para comparação; **Vídeo original** não aplica nitidez.
