@@ -1,0 +1,62 @@
+name: Build e release
+
+on:
+  push:
+    branches: [main, 'claude/**']
+    paths: ['src/**', 'tools/**', 'tests/**', 'android/**', 'script.js', 'player/**', '.github/workflows/build-release.yml']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag da release (ex.: v8.6.5). Vazio = só build, sem release'
+        required: false
+        default: ''
+      notes:
+        description: 'Arquivo de notas (ex.: docs/release-v8.6.5.md)'
+        required: false
+        default: ''
+      target:
+        description: 'Commit da tag (vazio = commit deste build)'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Ferramentas Android (sem SDK)
+        run: sudo apt-get update -q && sudo apt-get install -y -q aapt dalvik-exchange zipalign apksigner
+      - name: Userscript e testes
+        run: |
+          python3 tools/build.py
+          git diff --exit-code -- better-xcloud-image-filter.user.js output/restoration.bundle.js || { echo "::error::Arquivos gerados desatualizados: rode python3 tools/build.py e faça commit"; exit 1; }
+          node --test tests/*.cjs
+          node --check better-xcloud-image-filter.user.js
+          node --check player/player.js
+      - name: APK
+        run: android/build.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: xcloud-imagefilter
+          path: |
+            better-xcloud-image-filter.user.js
+            android/dist/*.apk
+      - name: Publicar release
+        if: github.event_name == 'workflow_dispatch' && inputs.tag != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+          NOTES: ${{ inputs.notes }}
+          TARGET: ${{ inputs.target || github.sha }}
+        run: |
+          test -f "$NOTES" || { echo "::error::Notas não encontradas: $NOTES"; exit 1; }
+          TITLE=$(head -1 "$NOTES" | sed 's/^# *//')
+          tail -n +2 "$NOTES" > /tmp/notes.md
+          gh release create "$TAG" better-xcloud-image-filter.user.js android/dist/*.apk \
+            --target "$TARGET" --title "$TITLE" --notes-file /tmp/notes.md
