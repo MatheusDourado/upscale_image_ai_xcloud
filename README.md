@@ -20,7 +20,7 @@ Para o Vostro 3400 ligado à TV por HDMI 1080p, comece em **saída Automática (
 
 ## Android (v9)
 
-Há um APK de teste em `android/dist/xcloud-imagefilter-9.0.apk`: um app WebView próprio que abre o xCloud com este userscript (v9). Veja [android/README.md](android/README.md).
+Há um APK de teste em `android/dist/xcloud-imagefilter-9.0.1.apk`: um app WebView próprio que abre o xCloud com este userscript (v9). Veja [android/README.md](android/README.md).
 
 ## Instalar
 

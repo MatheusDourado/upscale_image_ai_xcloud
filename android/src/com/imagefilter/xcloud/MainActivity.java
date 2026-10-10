@@ -95,7 +95,11 @@ public class MainActivity extends Activity {
                 + "if(!(/^\\/[^\\/]+\\/play/.test(p)||(/^\\/[^\\/]+\\/auth\\/msa/.test(p)&&/loggedIn/.test(s))))return;"
                 + "if(/\\/xbox-game-pass\\/play-day-one/.test(p))return;"
                 + "window.__bxImageFilter=true;"
-                + "window.BX_FLAGS=Object.assign({DeviceInfo:{deviceType:'android'}},window.BX_FLAGS||{});\n"
+                + "window.BX_FLAGS=Object.assign({DeviceInfo:{deviceType:'android'}},window.BX_FLAGS||{});"
+                // xCloud picks the stream size from the reported OS: Android gets 720p. Unless the
+                // user already chose a target resolution, start at Better xCloud's 1080p (HQ).
+                + "try{var k='BetterXcloud',g=JSON.parse(localStorage.getItem(k)||'{}');"
+                + "if(!('stream.video.resolution' in g)){g['stream.video.resolution']='1080p-hq';localStorage.setItem(k,JSON.stringify(g));}}catch(e){}\n"
                 + script
                 + "\n})();";
     }

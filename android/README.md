@@ -4,7 +4,7 @@ App Android próprio (WebView) que abre o xCloud e injeta o userscript desta ver
 
 ## Instalar
 
-1. Baixe `android/dist/xcloud-imagefilter-9.0.apk` deste repositório (no GitHub: abra o arquivo → **Download raw file**).
+1. Baixe `android/dist/xcloud-imagefilter-9.0.1.apk` deste repositório (no GitHub: abra o arquivo → **Download raw file**).
 2. No celular, permita instalar apps da fonte usada (navegador ou gerenciador de arquivos) e instale.
 3. Abra **xCloud ImageFilter**, faça login na conta Microsoft e entre num jogo.
 4. No menu do Better xCloud → **Vídeo**, mantenha o renderizador **WebGL2**. O painel **Tratamento de imagem • v9** fica logo abaixo de Nitidez.
@@ -16,6 +16,7 @@ Pode ser instalado junto com o app oficial: o pacote é outro (`com.imagefilter.
 - Abre `https://www.xbox.com/play` em tela cheia, paisagem, tela sempre ligada, sem barras do sistema.
 - Injeta o userscript **antes dos scripts da página** (document-start), com as mesmas regras `@match`/`@exclude` do Tampermonkey, só no frame principal. Usa a API de document-start do Android System WebView (a mesma do `androidx.webkit`). Em WebView antigo sem esse recurso, avisa e injeta no início do carregamento.
 - User-agent do Chrome Android (sem a marca de WebView, que o xCloud recusa).
+- **Stream em 1080p**: o xCloud escolhe a resolução pelo sistema informado e manda 720p para Android. Na primeira execução, o app ajusta a **Resolução alvo** do Better xCloud para **1080p (HQ)**, que se apresenta ao servidor como TV. Se você mudar essa opção, a sua escolha é mantida. Vale a partir da próxima sessão de jogo.
 - Botão B do controle não fecha o jogo (Android converte B não tratado em "voltar").
 - Depuração remota habilitada: com o celular no PC por USB, abra `chrome://inspect` para ver o console.
 
