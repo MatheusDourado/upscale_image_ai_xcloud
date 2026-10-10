@@ -8,7 +8,7 @@ assert source.count(marker)==1
 a=source.index('class WebGL2Player');b=source.index(marker,a)
 cas=re.search(r'gl.shaderSource\(fShader, `([^`]+)`\)',source[a:b]).group(1)
 cas=cas.replace('precision mediump float;','precision highp float;\nprecision highp sampler2D;').replace('1.0 / maxRgb','1.0 / max(maxRgb, vec3(1e-6))').replace('inversesqrt(amplifyRgb)','inversesqrt(max(amplifyRgb, vec3(1e-6)))')
-shaders={p.stem:p.read_text() for p in Path('src/shaders').glob('*.glsl')}
+shaders={p.stem:p.read_text() for p in sorted(Path('src/shaders').glob('*.glsl'))}
 # Fuse finishing into sharpening to avoid a full-frame pass and RGBA8 rounding.
 finish=shaders['finish'].split('vec3 finishColor',1)[1].split('void main()',1)[0]
 shaders['rcas']=shaders['rcas'].replace('/* FINISH_COLOR */','vec3 finishColor'+finish)
