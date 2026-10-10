@@ -87,6 +87,12 @@ html = r'''<!doctype html><meta charset="utf-8"><pre id="result">Running</pre>
   const gain=b=>{let s=0,r=0;for(let y=4;y<92;y++)for(let x=4;x<124;x++){const i=(y*128+x)*4;s+=hp(b,i)*hp(src,i);r+=hp(src,i)**2;}return s/r;};
   const ref=gain(render({mode:'cas',sharpness:2})),two=gain(render({sharpness:2})),six=gain(render({sharpness:6}));
   check(two>=ref*.7&&six>ref,'Filtered sharpness reaches beyond the CAS-only reference at the same scale',{ref,two,six});}
+ // Luma-only sharpening: a colored edge gains contrast without changing its chroma.
+ ctx.fillStyle='rgb(150,60,60)';ctx.fillRect(0,0,64,96);ctx.fillStyle='rgb(60,60,150)';ctx.fillRect(64,0,64,96);
+ {const chroma=(b,x)=>{const i=(40*128+x)*4,y=.2126*b[i]+.7152*b[i+1]+.0722*b[i+2];return [b[i]-y,b[i+2]-y];};
+  const flat=render({mode:'original'}),luma=render({sharpening:'usm',lumaSharpen:true,sharpness:6}),rgb=render({sharpening:'usm',lumaSharpen:false,sharpness:6});
+  const drift=b=>Math.max(...[62,63,64,65].map(x=>{const [r,u]=chroma(b,x),[r0,u0]=chroma(flat,x);return Math.max(Math.abs(r-r0),Math.abs(u-u0));}));
+  check(drift(luma)<=2&&drift(rgb)>drift(luma),'Luma-only sharpening keeps edge chroma',{luma:drift(luma),rgb:drift(rgb)});}
  // Force the optional float-target capability off; this still uses real WebGL rendering.
  const getExtension=gl.getExtension.bind(gl);gl.getExtension=name=>name==='EXT_color_buffer_float'?null:getExtension(name);
  const fallback=new BxRestoration.Engine(gl,BxShaders);gl.getExtension=getExtension;

@@ -51,10 +51,12 @@ test('explicit output below source resolution is retained before adaptation',()=
  assert.equal(p.outputFor(s),'1440');
 });
 
-test('v8 settings keep native sharpening and allow isolated legacy comparison',()=>{
- const a=api();assert.equal(a.defaults.sharpening,'native');assert.equal(a.defaults.spatialMode,'selective');
- assert.equal(a.normalize({sharpening:'rcas',spatialMode:'legacy'}).sharpening,'rcas');
- assert.equal(a.normalize({sharpening:'bad',spatialMode:'bad'}).spatialMode,'selective');
+test('v9 sharpening defaults to luma-only USM and keeps every method selectable',()=>{
+ const a=api();assert.equal(a.defaults.sharpening,'usm');assert.equal(a.defaults.lumaSharpen,true);assert.equal(a.defaults.sharpness,3);assert.equal(a.defaults.spatialMode,'selective');
+ for(const m of ['usm','cas','rcas','native'])assert.equal(a.normalize({sharpening:m}).sharpening,m);
+ assert.equal(a.normalize({sharpening:'bad',spatialMode:'bad'}).sharpening,'usm');
+ assert.equal(a.normalize({sharpening:'rcas',spatialMode:'legacy'}).spatialMode,'legacy');
+ assert.equal(a.normalize({noiseFloor:99}).noiseFloor,8);assert.equal(a.normalize({lumaSharpen:false}).lumaSharpen,false);
 });
 test('diagnostics are opt-in, segment settings and compute percentiles without mixing modes',()=>{
  const d=api().createDiagnostics();assert.equal(d.frame({},0),null);d.start({test:true});

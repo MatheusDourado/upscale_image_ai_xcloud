@@ -1,8 +1,10 @@
-# Better xCloud — tratamento experimental v8.6
+# Better xCloud — tratamento experimental v9
 
 Userscript Windows/Chrome/Tampermonkey baseado no Better xCloud 6.7.12 fornecido em `script.js`. O original foi preservado. A integração anterior foi confirmada pelo diagnóstico magenta no Dell; o tratamento anterior não trouxe ganho perceptível.
 
-A v8.6 devolve o controle de nitidez: slider **Nitidez** (0–10, passo 0,5) no próprio painel, usado pelo tratamento e pela referência só CAS. O limitador de halos agora cresce com a intensidade (±4/255 em 2, ±12/255 em 10) e não corta mais o realce de textura de baixo contraste; na v8.5, nem a Nitidez 10 superava a referência CAS 2. O AA foi fundido na passagem espacial quando o temporal está desligado, sem passagem extra. Veja [validação v8.6](docs/validation-v8.6.md).
+A **v9** ajusta os padrões por medição objetiva (stream H.264 tipo xCloud comparado com referências limpas): nitidez **USM só na luma** (intensidade 3), piso de ruído no limitador, Detalhe 20%, Cor nas bordas 75%, e saída **Automática na altura real do vídeo na tela**, que no celular usa FSR e aplica a nitidez no tamanho final. Veja [análise v9](docs/analysis-v9.md).
+
+A v8.6 devolveu o controle de nitidez: slider **Nitidez** (0–10, passo 0,5) no próprio painel, usado pelo tratamento e pela referência só CAS. O limitador de halos agora cresce com a intensidade (±4/255 em 2, ±12/255 em 10) e não corta mais o realce de textura de baixo contraste; na v8.5, nem a Nitidez 10 superava a referência CAS 2. O AA foi fundido na passagem espacial quando o temporal está desligado, sem passagem extra. Veja [validação v8.6](docs/validation-v8.6.md).
 
 A v8.5 acrescentou **Cor nas bordas** (reconstrução da cor 4:2:0 guiada pela luma), **Detalhe** (realce só na luma, com coring contra ruído e ringing do encoder), saída **Automática** pela resolução física da tela/HDMI, EASU lendo cada texel uma vez e orçamento padrão de 6 ms. Tudo roda no mesmo passe espacial em 1080p; o padrão continua em duas passagens. Veja [validação v8.5](docs/validation-v8.5.md).
 
@@ -16,16 +18,16 @@ A v7.1 corrige as pendências de degradês, halos e movimento da v7. O caminho p
 
 Para o Vostro 3400 ligado à TV por HDMI 1080p, comece em **saída Automática (resolve para nativa), Nitidez 3–5 no painel, orçamento 6 ms, Cor nas bordas 50%, Detalhe 35%, Degradês 30–50%, temporal e AA desligados**. A TV continua responsável por ampliar o sinal recebido para seu painel 4K. Forçar 4K no canvas não cria informação de uma renderização 4K do jogo, nem muda o sinal HDMI.
 
-## Android (v8.6.5)
+## Android (v9)
 
-Há um APK de teste em `android/dist/xcloud-imagefilter-8.6.5.apk`: um app WebView próprio que abre o xCloud com este userscript (v8.6). Veja [android/README.md](android/README.md).
+Há um APK de teste em `android/dist/xcloud-imagefilter-9.0.apk`: um app WebView próprio que abre o xCloud com este userscript (v9). Veja [android/README.md](android/README.md).
 
 ## Instalar
 
 1. Desative outras versões do Better xCloud no Tampermonkey. Não execute duas juntas.
 2. Substitua todo o conteúdo do script experimental por `better-xcloud-image-filter.user.js`, salve e recarregue o xCloud.
 3. Mantenha resolução **1080p HQ**, qualidade **Alta**, bitrate **Ilimitado** e renderizador **WebGL2**.
-4. Abra **Tratamento de imagem • v8.6** no menu do Better xCloud, na seção **Vídeo**, logo após **Nitidez**.
+4. Abra **Tratamento de imagem • v9** no menu do Better xCloud, na seção **Vídeo**, logo após **Nitidez**.
 5. Compare **Referência: só CAS** e **Novo tratamento** na mesma cena, com a mesma Nitidez. **Vídeo original** desliga o tratamento e a nitidez.
 
 Desde a v8.6, a intensidade vem do slider **Nitidez** do painel (0–10, passo 0,5); o slider nativo do Better xCloud não é usado no tratamento. A seleção AMD CAS/USM e o modo Performance/Qualidade continuam vindo do menu nativo. Há uma única etapa de nitidez após o tratamento e o upscale. **Referência: só CAS** usa a mesma intensidade, sem os demais tratamentos; **Vídeo original** não aplica nitidez.

@@ -1,6 +1,7 @@
 // Better xCloud adapter and controls for the shared restoration engine.
 (() => {
- const key='BxImageFilter.v3';let saved;try{saved=JSON.parse(localStorage.getItem(key));}catch{}
+ // v9 has measured defaults; a new key keeps v8.x saved values from overriding them.
+ const key='BxImageFilter.v9';let saved;try{saved=JSON.parse(localStorage.getItem(key));}catch{}
  const settings=BxRestoration.normalize(saved);
  // Native image controls own sharpening; removed experimental color overrides stay neutral.
  settings.contrast=1;settings.saturation=1;settings.shadows=0;
@@ -84,15 +85,15 @@
  function mountControls(parent){
   if(controlsPanel){parent.append(controlsPanel);return;}
   if(parent.querySelector('[data-bx-restoration]'))return;
-  const panel=controlsPanel=document.createElement('div');panel.dataset.bxRestoration='v8.6';
-  const title=document.createElement('p');title.textContent='Tratamento de imagem • v8.6';panel.append(title);
+  const panel=controlsPanel=document.createElement('div');panel.dataset.bxRestoration='v9';
+  const title=document.createElement('p');title.textContent='Tratamento de imagem • v9';panel.append(title);
   function row(label,control){
    const wrapper=document.createElement('label');wrapper.className='bx-settings-row';
    const text=document.createElement('span');text.className='bx-settings-label';text.textContent=label;
    wrapper.append(text,control);panel.append(wrapper);return text;
   }
   const choose=document.createElement('select');choose.className='bx-focusable';choose.setAttribute('aria-label','Comparação');
-  for(const [value,label]of [['original','Vídeo original'],['cas','Referência: só CAS (mesma nitidez)'],['filtered','Novo tratamento']]){const option=document.createElement('option');option.value=value;option.textContent=label;choose.append(option);}
+  for(const [value,label]of [['original','Vídeo original'],['cas','Referência: só nitidez (sem tratamento)'],['filtered','Novo tratamento']]){const option=document.createElement('option');option.value=value;option.textContent=label;choose.append(option);}
   choose.value=settings.mode;choose.onchange=()=>{settings.mode=choose.value;persist();};row('Comparação',choose);
   const inputs=[];
   {
@@ -114,7 +115,7 @@
    select.onchange=()=>{settings[name]=name==='gpuBudget'?Number(select.value):select.value;activeEngine?.resetBudget();persist();};row(label,select);
   }
   selection('Limpeza espacial','spatialMode',[['selective','Seletiva v8'],['legacy','Referência v7.1']]);
-  selection('Nitidez final','sharpening',[['native','CAS / USM nativo'],['rcas','RCAS experimental']]);
+  selection('Nitidez final','sharpening',[['usm','USM (recomendado)'],['cas','AMD CAS'],['rcas','AMD RCAS'],['native','Seguir menu nativo (CAS/USM)']]);
   selection('Resolução de saída','output',[['auto','Automática — resolução da tela'],['native','1080p / nativa com tratamento'],['1440','2K — 2560 × 1440'],['2160','4K — 3840 × 2160']]);
   selection('Tratamento na GPU','gpuBudget',[['3','Adaptar acima de 3 ms'],['6','Adaptar acima de 6 ms'],['10','Adaptar acima de 10 ms'],['0','Manter todos os filtros ativos']]);
   const diagnostic=document.createElement('button');diagnostic.className='bx-focusable';
@@ -132,7 +133,7 @@
   panel.append(measure,exportReport);
   const reset=document.createElement('button');reset.className='bx-focusable';reset.textContent='Restaurar tratamento';reset.onclick=()=>{api.reset();for(const sync of inputs)sync();choose.value=settings.mode;syncDiagnostic();};panel.append(reset);
   const report=document.createElement('p');report.setAttribute('role','status');panel.append(report);
-  const note=document.createElement('p');note.textContent='Nitidez deste painel vale para o tratamento e para a referência só CAS (o controle nativo de Nitidez não é usado aqui); CAS/USM e Performance/Qualidade seguem o menu nativo. RCAS tem escala própria. Comece em saída Automática, Nitidez 3–5 e 6 ms. Degradês altos e Antialiasing suavizam textura: use 30–50% e 0–25%. Cor nas bordas alinha a cor 4:2:0 às bordas da luma; Detalhe realça textura só na luma, sem realçar ruído fraco. A medição exporta tempos GPU e contadores disponíveis; não mede latência do controle. Tratamento salvo para todos os jogos.';panel.append(note);
+  const note=document.createElement('p');note.textContent='v9: padrões medidos em streams H.264 tipo xCloud (docs/analysis-v9.md). Nitidez e método valem para o tratamento e para a referência só nitidez. Saída Automática renderiza na altura real do vídeo na tela: em celulares (ex.: 1220–1280 px) usa FSR e aplica a nitidez já no tamanho final; com HDMI 1080p fica nativa. Degradês altos e Antialiasing suavizam textura. A medição exporta tempos GPU; não mede latência do controle. Tratamento salvo para todos os jogos.';panel.append(note);
   // Explicit 2K/4K above the display (e.g. 1080p HDMI to a 4K TV) is scaled back down by the browser.
   const outputWarning=()=>settings.mode==='filtered'&&['1440','2160'].includes(settings.output)&&status.display&&Number(settings.output)>status.display*1.1?`Tela/HDMI em ${status.display}p: saída maior só aumenta custo. Use Automática.\n`:'';
   let interval=null;

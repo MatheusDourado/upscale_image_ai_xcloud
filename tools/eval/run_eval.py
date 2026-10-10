@@ -46,7 +46,12 @@ function metrics(out,ref,w,h,region){const n=w*h,A=planes(out,n),B=planes(ref,n)
   hpRef+=hb*hb;hpCross+=ha*hb;hpOut+=ha*ha;
   let lo=255,hi=0;for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++){const v=B.Y[i+dy*w+dx];if(v<lo)lo=v;if(v>hi)hi=v;}
   if(hi-lo>40){halo+=Math.max(0,A.Y[i]-hi-1)+Math.max(0,lo-1-A.Y[i]);hn++;}}
- return {psnr:10*Math.log10(255*255/(se/cnt)),chroma:10*Math.log10(255*255/(cse/cnt)),ssim:ssim/sn,detail:hpCross/hpRef,energy:hpOut/hpRef,halo:hn?halo/hn:0};}
+ // Banding (smooth regions only): gradient of a 3x3 box blur (removes dither) against the reference.
+ let band=0,bn=0;if(region){const blur=(P,i)=>(P[i-w-1]+P[i-w]+P[i-w+1]+P[i-1]+P[i]+P[i+1]+P[i+w-1]+P[i+w]+P[i+w+1])/9;
+  for(let y=Math.max(2,y0);y<Math.min(h-2,y1);y++)for(let x=2;x<w-2;x++){const i=y*w+x;
+   const ga=Math.abs(blur(A.Y,i+1)-blur(A.Y,i))+Math.abs(blur(A.Y,i+w)-blur(A.Y,i)),gb=Math.abs(blur(B.Y,i+1)-blur(B.Y,i))+Math.abs(blur(B.Y,i+w)-blur(B.Y,i));
+   band+=Math.abs(ga-gb);bn++;}}
+ return {psnr:10*Math.log10(255*255/(se/cnt)),chroma:10*Math.log10(255*255/(cse/cnt)),ssim:ssim/sn,detail:hpCross/hpRef,energy:hpOut/hpRef,halo:hn?halo/hn:0,band:bn?band/bn:0};}
 window.evaluate=async(jobs)=>{const results=[];
  for(const job of jobs){const input=await image(job.input),ref=await image(job.ref);
   let out=render(input,job.settings,job.display?input.width:ref.width,job.display?input.height:ref.height);
@@ -81,5 +86,8 @@ class Evaluator:
     def score(self, settings, **kw):
         res = self.run(jobs(settings, **kw))
         mean = lambda k: sum(r[k] for r in res) / len(res)
-        return {k: round(mean(k), 4) for k in ('ssim', 'psnr', 'chroma', 'detail', 'energy', 'halo')}, res
+        return {k: round(mean(k), 4) for k in ('ssim', 'psnr', 'chroma', 'detail', 'energy', 'halo', 'band')}, res
+    def banding(self, settings, target='1080'):
+        res = self.run(jobs(settings, target=target, region_sky=True))
+        return round(sum(r['band'] for r in res) / len(res), 4)
     def close(self): self.b.close(); self.p.stop()

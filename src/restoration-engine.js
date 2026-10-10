@@ -1,13 +1,15 @@
 /* Shared GPU video processing engine. GLSL assets are embedded by tools/build.py. */
 (() => {
-  const defaults = Object.freeze({mode:'filtered',cleanup:.35,deband:.3,chroma:.5,detail:.35,temporal:0,upscale:true,output:'auto',antialias:0,gpuBudget:6,sharpness:2,processing:'cas',sharpening:'native',spatialMode:'selective',lumaSharpen:false,noiseFloor:1,processingMode:'performance',contrast:1,saturation:1,shadows:0});
+  // v9 defaults come from tools/eval (docs/analysis-v9.md): same sharpness as the clean
+  // render with the highest fidelity on xCloud-like H.264 streams.
+  const defaults = Object.freeze({mode:'filtered',cleanup:.5,deband:.3,chroma:.75,detail:.2,temporal:0,upscale:true,output:'auto',antialias:0,gpuBudget:6,sharpness:3,processing:'cas',sharpening:'usm',spatialMode:'selective',lumaSharpen:true,noiseFloor:4,processingMode:'performance',contrast:1,saturation:1,shadows:0});
   function normalize(value={}) {
     if(!value || typeof value!=='object')value={};
     const result={...defaults};
     if(['auto','native','1440','2160'].includes(value.output)||/^\d{3,4}$/.test(value.output)&&value.output>=360&&value.output<=2160)result.output=String(value.output);
     if([0,3,6,10].includes(value.gpuBudget))result.gpuBudget=value.gpuBudget;
     if(['original','cas','filtered'].includes(value.mode))result.mode=value.mode;
-    if(['native','rcas'].includes(value.sharpening))result.sharpening=value.sharpening;
+    if(['usm','cas','rcas','native'].includes(value.sharpening))result.sharpening=value.sharpening;
     if(['selective','legacy'].includes(value.spatialMode))result.spatialMode=value.spatialMode;
     if(['cas','usm'].includes(value.processing))result.processing=value.processing;
     if(['performance','quality'].includes(value.processingMode))result.processingMode=value.processingMode;
@@ -78,7 +80,7 @@
         if(count>=120000)return;segment.gpu.push(ms);count++;
       },
       disjoint(){if(recording)disjoints++;},
-      report(){return {schema:1,version:'8.6',build:globalThis.BxBuild??null,started,ended,stopReason,recording,metadata,disjoints,sampleLimit:120000,truncated:count>=120000||segments.length>=256,
+      report(){return {schema:1,version:'9',build:globalThis.BxBuild??null,started,ended,stopReason,recording,metadata,disjoints,sampleLimit:120000,truncated:count>=120000||segments.length>=256,
         segments:segments.map(({config,frames,first,last,gpu})=>{const sorted=[...gpu].sort((a,b)=>a-b);return {config,frames,durationMs:last-first,drawFps:last>first?(frames-1)*1000/(last-first):null,gpu:{count:gpu.length,p50:percentile(sorted,.5),p95:percentile(sorted,.95),p99:percentile(sorted,.99),samplesMs:[...gpu]}};})};}
     };
   }
@@ -91,7 +93,7 @@
       const codec=stats.get(item.codecId);row.codec=codec?{mimeType:codec.mimeType,sdpFmtpLine:codec.sdpFmtpLine}:null;result.rtc.push(row);
     });}catch{result.rtcUnavailable=true;}return result;
   }
-  function downloadReport(report){const url=URL.createObjectURL(new Blob([JSON.stringify(report,null,2)],{type:'application/json'})),a=document.createElement('a');a.href=url;a.download='bx-v8.6-diagnostics-'+Date.now()+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
+  function downloadReport(report){const url=URL.createObjectURL(new Blob([JSON.stringify(report,null,2)],{type:'application/json'})),a=document.createElement('a');a.href=url;a.download='bx-v9-diagnostics-'+Date.now()+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
   const vertex='#version 300 es\nlayout(location=0) in vec2 position;void main(){gl_Position=vec4(position,0,1);}';
   class Engine {
     constructor(gl,shaders){
@@ -184,8 +186,10 @@
           if(temporalEnabled&&antialias>0){const aa=this.target('aa',w,h,s.processingMode==='quality');this.draw('antialias',aa,w,h,{source},{amount:antialias});source=aa.texture;}
           if(s.upscale&&outW>w&&outH>h){const scaled=this.target('scaled',outW,outH,s.processingMode==='quality');this.draw('easu',scaled,outW,outH,{source});source=scaled.texture;}
         }else this.previous=null;
-        // One sharpening stage. The CAS-only reference uses the same strength as the treatment for a fair A/B.
-        const casName=s.mode==='filtered'?(s.sharpening==='rcas'?'rcas':'casFiltered'):'cas';const p=this.programs[casName];gl.useProgram(p.program);gl.uniform1i(gl.getUniformLocation(p.program,'filterId'),s.mode==='filtered'&&s.processing==='usm'?1:2);
+        // One sharpening stage. 'native' follows the Better xCloud menu (CAS/USM). The
+        // reference applies the same method and strength with the unmodified upstream shader.
+        const method=s.sharpening==='native'?s.processing:s.sharpening;
+        const casName=s.mode==='filtered'?(method==='rcas'?'rcas':'casFiltered'):'cas';const p=this.programs[casName];gl.useProgram(p.program);gl.uniform1i(gl.getUniformLocation(p.program,'filterId'),method==='usm'?1:2);
         this.draw(casName,null,outW,outH,{data:source},{iResolution:[outW,outH],qualityMode:s.mode==='filtered'&&s.processingMode==='quality',rcasStrength:s.sharpness/10,haloMargin:(2+s.sharpness)/255,noiseFloor:s.noiseFloor/255,lumaSharpen:s.lumaSharpen,sharpenFactor:s.mode==='original'?0:s.mode==='cas'?s.sharpness/1.2:s.sharpness/(s.processingMode==='quality'?1:1.2),brightness:1,contrast:s.mode==='filtered'?s.contrast:1,saturation:s.mode==='filtered'?s.saturation:1,shadows:s.mode==='filtered'?s.shadows:0,deband:s.mode==='filtered'?s.deband*this.budget.debandScale:0,diagnostic});
         this.frames++;return true;
       }finally{

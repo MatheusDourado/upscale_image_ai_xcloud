@@ -53,7 +53,7 @@ probe=r'''
  prefs['video.processing.mode']='quality';player.updateFrame();check(player.gl.getError()===player.gl.NO_ERROR,'Native quality mode remains valid');
  const qualityPixels=readPlayer();check(Math.abs(qualityPixels[(40*128+20)*4]-85)<=1,'Quality halo limiter preserves uniform region luminance');
  const menu=document.createElement('section');document.body.append(menu);BxImageFilter.mountControls(menu);
- check(menu.querySelector('[data-bx-restoration="v8.6"]')&&!document.getElementById('bx-image-filter-panel'),'Controls mount inside supplied Better xCloud menu');
+ check(menu.querySelector('[data-bx-restoration="v9"]')&&!document.getElementById('bx-image-filter-panel'),'Controls mount inside supplied Better xCloud menu');
  check(menu.querySelectorAll("input[type=range]").length===7,"Sharpness, compression, gradient, chroma, detail, temporal and AA sliders added");check(menu.querySelector("input[aria-label=Nitidez]")?.step==="0.5","Panel sharpness slider uses half steps");
  const sharpening=menu.querySelector('[aria-label="Nitidez final"]');sharpening.value='rcas';sharpening.dispatchEvent(new Event('change'));player.updateFrame();
  check(BxImageFilter.settings.sharpening==='rcas'&&player.gl.getError()===player.gl.NO_ERROR,'RCAS selector renders through native adapter');
@@ -84,6 +84,13 @@ probe=r'''
  check(smooth[(10*128+100)*4]===255&&smooth[(80*128+10)*4]===0,'AA preserves uniform black and white');
  ctx.fillStyle='black';ctx.fillRect(0,0,64,96);ctx.fillStyle='white';ctx.fillRect(64,0,64,96);engine.render(input,128,96,aaSettings,1.032);
  check(intermediates(pixels())===0,'AA preserves axis-aligned edge');
+ // Auto output follows the on-screen size of the canvas CSS box, not the backing size.
+ {const autoInput=document.createElement('canvas');autoInput.width=192;autoInput.height=108;autoInput.currentTime=0;
+  const autoPlayer=new WebGL2Player(autoInput);await autoPlayer.setupShaders();BxImageFilter.settings.output='auto';BxImageFilter.settings.gpuBudget=0;
+  autoPlayer.$canvas.style.cssText='width:'+Math.round(400/devicePixelRatio)+'px;height:'+Math.round(400/devicePixelRatio)+'px;object-fit:contain';autoPlayer.updateFrame();
+  check(autoPlayer.$canvas.height===224&&autoPlayer.$canvas.width===398,'Auto output renders at the displayed video height (contain box)');
+  autoPlayer.$canvas.style.cssText='width:'+Math.round(96/devicePixelRatio)+'px;height:'+Math.round(54/devicePixelRatio)+'px';autoInput.currentTime+=.016;autoPlayer.updateFrame();
+  check(autoPlayer.$canvas.height===108,'Auto output stays native when the video is shown smaller than the source');autoPlayer.destroy();}
  const forcedPlayer=new WebGL2Player(adapterInput);adapterInput.width=192;adapterInput.height=108;await forcedPlayer.setupShaders();
  BxImageFilter.settings.output='2160';BxImageFilter.settings.gpuBudget=0;forcedPlayer.updateFrame();
  check(forcedPlayer.$canvas.width===3840&&forcedPlayer.$canvas.height===2160,'4K output ignores smaller display dimensions');
