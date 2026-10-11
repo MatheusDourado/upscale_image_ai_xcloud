@@ -125,12 +125,10 @@ test('decoder summary reports DT like Better xCloud and the decoder kind when ex
  assert.equal(a.decoderSummary(null,null),null);
 });
 
-test('codec test keeps only the requested family plus RTX/RED/FEC',()=>{
- const a=api(),caps=[{mimeType:'video/VP8'},{mimeType:'video/H264',sdpFmtpLine:'x'},{mimeType:'video/AV1'},{mimeType:'video/rtx'},{mimeType:'video/red'},{mimeType:'video/ulpfec'},{mimeType:'video/H265'}];
- assert.deepEqual(JSON.parse(JSON.stringify(a.filterCodecs(caps,'av1').map(c=>c.mimeType))),['video/AV1','video/rtx','video/red','video/ulpfec']);
- assert.deepEqual(JSON.parse(JSON.stringify(a.filterCodecs(caps,'h265').map(c=>c.mimeType))),['video/H265','video/rtx','video/red','video/ulpfec']);
- assert.equal(a.filterCodecs(caps,'vp9').length,0);assert.equal(a.filterCodecs(caps,'auto'),null);
- assert.equal(a.defaults.codec,'auto');assert.equal(a.normalize({codec:'av1'}).codec,'av1');assert.equal(a.normalize({codec:'x'}).codec,'auto');
+test('only the H.264 High codec test remains; earlier AV1/H.265/VP9 choices fall back to auto',()=>{
+ const a=api(),caps=[{mimeType:'video/VP8'},{mimeType:'video/AV1'},{mimeType:'video/rtx'}];
+ for(const c of ['av1','h265','vp9'])assert.equal(a.normalize({codec:c}).codec,'auto');
+ assert.equal(a.filterCodecs(caps,'av1'),null);assert.equal(a.filterCodecs(caps,'h264high').length,0);assert.equal(a.defaults.codec,'auto');
 });
 
 test('H.264 High test keeps only profile 64 and reports profiles from fmtp',()=>{

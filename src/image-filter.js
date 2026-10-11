@@ -24,9 +24,9 @@
   const restrict=function(){
    if(settings.codec!=='auto')try{
     const codecs=BxRestoration.filterCodecs(RTCRtpReceiver.getCapabilities('video')?.codecs||[],settings.codec);
-    if(!codecs.length)api.codecStatus=`${settings.codec.toUpperCase()} não suportado por este navegador; usando o padrão`;
+    if(!codecs.length)api.codecStatus='H.264 High não anunciado por este navegador; usando o padrão';
     else{for(const t of this.getTransceivers())if(t.receiver?.track?.kind==='video'&&t.setCodecPreferences)t.setCodecPreferences(codecs);
-     api.codecStatus=`Teste de codec: oferecendo só ${settings.codec.toUpperCase()}`;}
+     api.codecStatus='Teste de codec: oferecendo só H.264 High';}
    }catch(error){api.codecStatus='Teste de codec falhou: '+(error.message||error);}
   };
   // Offer (xCloud's usual direction) and answer, in case negotiation is ever reversed.
@@ -133,7 +133,7 @@
   selection('Limpeza espacial','spatialMode',[['selective','Seletiva v8'],['legacy','Referência v7.1']]);
   selection('Nitidez final','sharpening',[['usm','USM (recomendado)'],['cas','AMD CAS'],['rcas','AMD RCAS'],['native','Seguir menu nativo (CAS/USM)']]);
   selection('Resolução de saída','output',[['auto','Automática — resolução da tela'],['native','1080p / nativa com tratamento'],['1440','2K — 2560 × 1440'],['2160','4K — 3840 × 2160']]);
-  selection('Codec (teste)','codec',[['auto','Automático (H.264 do xCloud)'],['h264high','Forçar H.264 High — teste'],['av1','Forçar AV1 — teste'],['h265','Forçar H.265 — teste'],['vp9','Forçar VP9 — teste']]);
+  selection('Codec (teste)','codec',[['auto','Automático (H.264 do xCloud)'],['h264high','Forçar H.264 High — teste']]);
   selection('Tratamento na GPU','gpuBudget',[['3','Adaptar acima de 3 ms'],['6','Adaptar acima de 6 ms'],['10','Adaptar acima de 10 ms'],['0','Manter todos os filtros ativos']]);
   const diagnostic=document.createElement('button');diagnostic.className='bx-focusable';
   const syncDiagnostic=()=>diagnostic.textContent=api.diagnostic?'Encerrar diagnóstico':'Diagnóstico: colorir imagem';syncDiagnostic();
@@ -150,7 +150,7 @@
   panel.append(measure,exportReport);
   const reset=document.createElement('button');reset.className='bx-focusable';reset.textContent='Restaurar tratamento';reset.onclick=()=>{api.reset();for(const sync of inputs)sync();choose.value=settings.mode;syncDiagnostic();};panel.append(reset);
   const report=document.createElement('p');report.setAttribute('role','status');panel.append(report);
-  const note=document.createElement('p');note.textContent='v9: padrões medidos em streams H.264 tipo xCloud (docs/analysis-v9.md). Nitidez e método valem para o tratamento e para a referência só nitidez. Saída Automática renderiza na altura real do vídeo na tela: em celulares (ex.: 1220–1280 px) usa FSR e aplica a nitidez já no tamanho final; com HDMI 1080p fica nativa. Codec (teste): vale ao iniciar o jogo; se a sessão não abrir, o servidor não suporta o codec: volte para Automático. Reconstrução neural (experimental, desligada por padrão): rede treinada em streams H.264 limpa blocos e ruído antes da nitidez; custa ~30% mais GPU e pede Nitidez ~2,5. Degradês altos e Antialiasing suavizam textura. A medição exporta tempos GPU; não mede latência do controle. Tratamento salvo para todos os jogos.';panel.append(note);
+  const note=document.createElement('p');note.textContent='v9: padrões medidos em streams H.264 tipo xCloud (docs/analysis-v9.md). Nitidez e método valem para o tratamento e para a referência só nitidez. Saída Automática renderiza na altura real do vídeo na tela: em celulares (ex.: 1220–1280 px) usa FSR e aplica a nitidez já no tamanho final; com HDMI 1080p fica nativa. Codec (teste): H.264 High vale ao iniciar o jogo; se a sessão não abrir ou o painel mostrar Main/Baseline, o servidor não usa High: volte para Automático. Reconstrução neural (experimental, desligada por padrão): rede treinada em streams H.264 limpa blocos e ruído antes da nitidez; custa ~30% mais GPU e pede Nitidez ~2,5. Degradês altos e Antialiasing suavizam textura. A medição exporta tempos GPU; não mede latência do controle. Tratamento salvo para todos os jogos.';panel.append(note);
   // Explicit 2K/4K above the display (e.g. 1080p HDMI to a 4K TV) is scaled back down by the browser.
   const outputWarning=()=>settings.mode==='filtered'&&['1440','2160'].includes(settings.output)&&status.display&&Number(settings.output)>status.display*1.1?`Tela/HDMI em ${status.display}p: saída maior só aumenta custo. Use Automática.\n`:'';
   // Live decoder line: inbound-rtp video every 2 s while the panel is open.

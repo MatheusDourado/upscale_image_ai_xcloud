@@ -10,7 +10,7 @@
     if([0,3,6,10].includes(value.gpuBudget))result.gpuBudget=value.gpuBudget;
     if(['original','cas','filtered'].includes(value.mode))result.mode=value.mode;
     if(['usm','cas','rcas','native'].includes(value.sharpening))result.sharpening=value.sharpening;
-    if(['auto','h264high','av1','h265','vp9'].includes(value.codec))result.codec=value.codec;
+    if(['auto','h264high'].includes(value.codec))result.codec=value.codec;
     if(['selective','legacy'].includes(value.spatialMode))result.spatialMode=value.spatialMode;
     if(['cas','usm'].includes(value.processing))result.processing=value.processing;
     if(['performance','quality'].includes(value.processingMode))result.processingMode=value.processingMode;
@@ -116,9 +116,10 @@
     return {kind,implementation:current.decoderImplementation||null,dtMs:Number.isFinite(dt)?dt:null,jitterMs:Number.isFinite(jitter)?jitter:null,
       fps:Number.isFinite(current.framesPerSecond)?current.framesPerSecond:null,codec:current.codec||null};
   }
-  // Codec test: video receive codecs restricted to one family (plus RTX/RED/FEC helpers), so the
-  // offer tells the xCloud server we only decode that codec. Empty result: not supported here.
-  const codecTypes={av1:['video/av1'],h265:['video/h265','video/hevc'],vp9:['video/vp9'],h264high:['video/h264']};
+  // Codec test: video receive codecs restricted to H.264 High (plus RTX/RED/FEC helpers), so the
+  // offer tells the xCloud server we only decode that profile. Empty result: not supported here.
+  // AV1, H.265 and VP9 were tested in v9.3: xCloud accepts only H.264.
+  const codecTypes={h264high:['video/h264']};
   function filterCodecs(codecs,target){
     if(!codecTypes[target])return null;
     const main=codecs.filter(c=>codecTypes[target].includes(c.mimeType.toLowerCase())&&(target!=='h264high'||h264Profile(c.sdpFmtpLine)==='High'));

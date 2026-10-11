@@ -116,16 +116,15 @@ probe=r'''
  const segments=engine.diagnostics.report().segments;
  check(segments.length===2&&segments[1].config.diagnostic,'Diagnostic tint starts a separate measurement segment');
  check(segments[0].config.effective.cleanup===0&&segments[0].config.effective.deband===0&&!segments[0].config.effective.temporal&&segments[0].config.effective.antialias===0,'Original report marks skipped treatments inactive');
- // Codec test: the real WebRTC offer advertises only the forced family (plus RTX/RED/FEC).
+ // Codec test: the real WebRTC offer is untouched in Automatic; H.264 High is filtered or reported.
  {const offered=async()=>{const pc=new RTCPeerConnection();pc.addTransceiver('video',{direction:'recvonly'});const o=await pc.createOffer();pc.close();
    const v=o.sdp.split('m=video')[1].split('m=')[0];return [...new Set([...v.matchAll(/a=rtpmap:\d+ ([^/]+)\//g)].map(m=>m[1].toUpperCase()))];};
   const saved=BxImageFilter.settings.codec;
-  BxImageFilter.settings.codec='vp9';const vp9=await offered();
-  check(vp9.includes('VP9')&&vp9.every(c=>['VP9','RTX','RED','ULPFEC','FLEXFEC-03'].includes(c)),'Forced VP9 offer advertises only VP9 and helpers '+vp9.join(','));
   BxImageFilter.settings.codec='auto';const auto=await offered();
   check(auto.includes('VP8')&&auto.includes('VP9'),'Automatic codec leaves the offer untouched '+auto.join(','));
-  BxImageFilter.settings.codec='h265';const h265=await offered();
-  check(h265.includes('H265')?h265.every(c=>['H265','RTX','RED','ULPFEC','FLEXFEC-03'].includes(c)):/não suportado/.test(BxImageFilter.codecStatus),'H.265 test filters the offer or reports it unsupported');
+  BxImageFilter.settings.codec='h264high';const high=await offered();
+  check(high.includes('H264')?high.every(c=>['H264','RTX','RED','ULPFEC','FLEXFEC-03'].includes(c)):/não anunciado/.test(BxImageFilter.codecStatus)&&high.includes('VP8'),'H.264 High test filters the offer or reports it unsupported and leaves it untouched');
+  check(!document.querySelector('select[aria-label="Codec (teste)"] option[value=av1]')&&document.querySelectorAll('select[aria-label="Codec (teste)"] option').length===2,'Codec test offers only Automatic and H.264 High');
   BxImageFilter.settings.codec=saved;BxImageFilter.codecStatus='';}
  const textures=Object.values(engine.targets).map(t=>t.texture);engine.destroy();check(textures.every(t=>!gl.isTexture(t)),'GPU resources released');
  document.getElementById('result').textContent=JSON.stringify({passed:checks});
