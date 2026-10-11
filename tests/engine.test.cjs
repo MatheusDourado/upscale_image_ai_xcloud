@@ -66,9 +66,9 @@ test('diagnostics are opt-in, segment settings and compute percentiles without m
  d.start();d.sample(a,123);assert.equal(d.report().segments.length,0);
 });
 test('video stats export only allowlisted video counters, no addresses',async()=>{
- const a=api(),rows=new Map([['v',{id:'v',type:'inbound-rtp',kind:'video',framesDecoded:20,codecId:'c',address:'private'}],['c',{mimeType:'video/H264',sdpFmtpLine:'profile-level-id=42e01f'}],['ip',{type:'candidate-pair',address:'private'}]]);
+ const a=api(),rows=new Map([['v',{id:'v',type:'inbound-rtp',kind:'video',framesDecoded:20,powerEfficientDecoder:true,decoderImplementation:'MediaCodec',codecId:'c',address:'private'}],['c',{mimeType:'video/H264',sdpFmtpLine:'profile-level-id=42e01f'}],['ip',{type:'candidate-pair',address:'private'}]]);
  const r=await a.captureVideoStats({videoWidth:1920,videoHeight:1080,currentTime:1,getVideoPlaybackQuality:()=>({totalVideoFrames:20,droppedVideoFrames:1})},{getStats:async()=>rows});
- assert.equal(r.rtc.length,1);assert.equal(r.rtc[0].framesDecoded,20);assert.equal(r.rtc[0].codec.mimeType,'video/H264');assert.ok(!JSON.stringify(r).includes('private'));
+ assert.equal(r.rtc.length,1);assert.equal(r.rtc[0].framesDecoded,20);assert.equal(r.rtc[0].powerEfficientDecoder,true);assert.equal(r.rtc[0].decoderImplementation,'MediaCodec');assert.equal(r.rtc[0].codec.mimeType,'video/H264');assert.ok(!JSON.stringify(r).includes('private'));
 });
 test('ending a capture keeps the original interruption reason on export',()=>{
  const d=api().createDiagnostics();d.start();d.frame({},0);d.stop('source-changed');d.stop();assert.equal(d.report().stopReason,'source-changed');d.start();assert.equal(d.report().stopReason,null);
@@ -113,4 +113,14 @@ test('neural restoration is opt-in, bounded and degraded right after AA',()=>{
  const p=a.createBudget();p.configure({neural:1,antialias:.5,deband:.3,cleanup:0,output:'native'},1080);
  for(let i=0;i<90;i++)p.sample(20);assert.equal(p.antialiasAllowed,false);assert.equal(p.neuralAllowed,true);
  for(let i=0;i<90;i++)p.sample(20);assert.equal(p.neuralAllowed,false);assert.equal(p.debandScale,1);
+});
+
+test('decoder summary reports DT like Better xCloud and the decoder kind when exposed',()=>{
+ const a=api();
+ const d=a.decoderSummary({framesDecoded:100,totalDecodeTime:1},{framesDecoded:160,totalDecodeTime:1.6,powerEfficientDecoder:true,decoderImplementation:'ExternalDecoder (MediaCodecVideoDecoder)'});
+ assert.equal(d.kind,'hardware');assert.ok(Math.abs(d.dtMs-10)<1e-9);assert.match(d.implementation,/MediaCodec/);
+ assert.equal(a.decoderSummary(null,{framesDecoded:1,totalDecodeTime:0}).dtMs,null);
+ assert.equal(a.decoderSummary({framesDecoded:1,totalDecodeTime:0},{framesDecoded:2,totalDecodeTime:.0005,powerEfficientDecoder:false}).kind,'software');
+ assert.equal(a.decoderSummary({framesDecoded:1,totalDecodeTime:0},{framesDecoded:2,totalDecodeTime:.0005}).kind,'unknown');
+ assert.equal(a.decoderSummary(null,null),null);
 });

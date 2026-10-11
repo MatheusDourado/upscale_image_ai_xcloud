@@ -53,7 +53,7 @@ probe=r'''
  prefs['video.processing.mode']='quality';player.updateFrame();check(player.gl.getError()===player.gl.NO_ERROR,'Native quality mode remains valid');
  const qualityPixels=readPlayer();check(Math.abs(qualityPixels[(40*128+20)*4]-85)<=1,'Quality halo limiter preserves uniform region luminance');
  const menu=document.createElement('section');document.body.append(menu);BxImageFilter.mountControls(menu);
- check(menu.querySelector('[data-bx-restoration="v9.1"]')&&!document.getElementById('bx-image-filter-panel'),'Controls mount inside supplied Better xCloud menu');
+ check(menu.querySelector('[data-bx-restoration="v9.2"]')&&!document.getElementById('bx-image-filter-panel'),'Controls mount inside supplied Better xCloud menu');
  check(menu.querySelectorAll("input[type=range]").length===8,"Sharpness, neural, compression, gradient, chroma, detail, temporal and AA sliders added");check(menu.querySelector("input[aria-label=Nitidez]")?.step==="0.5","Panel sharpness slider uses half steps");
  const sharpening=menu.querySelector('[aria-label="Nitidez final"]');sharpening.value='rcas';sharpening.dispatchEvent(new Event('change'));player.updateFrame();
  check(BxImageFilter.settings.sharpening==='rcas'&&player.gl.getError()===player.gl.NO_ERROR,'RCAS selector renders through native adapter');
@@ -66,6 +66,11 @@ probe=r'''
  sharpening.value='native';sharpening.dispatchEvent(new Event('change'));
  const slider=menu.querySelector('input[aria-label=Compressão]');slider.value='71';slider.dispatchEvent(new Event('input'));check(BxImageFilter.settings.cleanup===.71,'Native menu controls persist settings');
  const menu2=document.createElement('section');document.body.append(menu2);BxImageFilter.mountControls(menu2);check(menu2.querySelector('input[aria-label=Compressão]').value==='71'&&!menu.querySelector('[data-bx-restoration]'),'Rebuilt menu retains controls and settings');
+ // Live decoder line from a simulated WebRTC connection (two snapshots 2 s apart: 60 frames, 0.6 s decode).
+ {let n=0;window.STATES={currentStream:{peerConnection:{getStats:async()=>{n++;return new Map([['v',{type:'inbound-rtp',kind:'video',framesDecoded:100+60*n,totalDecodeTime:.6*n,powerEfficientDecoder:true,decoderImplementation:'MediaCodec'}]]);}}}};
+  const re=/Decodificação: hardware \(MediaCodec\) • DT 10\.0 ms/,status=()=>menu2.querySelector('[role=status]').textContent;
+  for(let t=0;t<16&&!re.test(status());t++)await new Promise(r=>setTimeout(r,500));
+  check(re.test(status()),'Panel shows decoder kind and DT from WebRTC stats');delete window.STATES;}
  player.destroy();
  const nextPlayer=new WebGL2Player(adapterInput);await nextPlayer.setupShaders();nextPlayer.updateFrame();BxImageFilter.diagnostic=true;nextPlayer.updateFrame();
  const tint=new Uint8Array(128*96*4);nextPlayer.gl.readPixels(0,0,128,96,nextPlayer.gl.RGBA,nextPlayer.gl.UNSIGNED_BYTE,tint);

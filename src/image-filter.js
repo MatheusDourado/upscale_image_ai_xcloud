@@ -85,8 +85,8 @@
  function mountControls(parent){
   if(controlsPanel){parent.append(controlsPanel);return;}
   if(parent.querySelector('[data-bx-restoration]'))return;
-  const panel=controlsPanel=document.createElement('div');panel.dataset.bxRestoration='v9.1';
-  const title=document.createElement('p');title.textContent='Tratamento de imagem • v9.1';panel.append(title);
+  const panel=controlsPanel=document.createElement('div');panel.dataset.bxRestoration='v9.2';
+  const title=document.createElement('p');title.textContent='Tratamento de imagem • v9.2';panel.append(title);
   function row(label,control){
    const wrapper=document.createElement('label');wrapper.className='bx-settings-row';
    const text=document.createElement('span');text.className='bx-settings-label';text.textContent=label;
@@ -136,12 +136,23 @@
   const note=document.createElement('p');note.textContent='v9: padrões medidos em streams H.264 tipo xCloud (docs/analysis-v9.md). Nitidez e método valem para o tratamento e para a referência só nitidez. Saída Automática renderiza na altura real do vídeo na tela: em celulares (ex.: 1220–1280 px) usa FSR e aplica a nitidez já no tamanho final; com HDMI 1080p fica nativa. Reconstrução neural (experimental, desligada por padrão): rede treinada em streams H.264 limpa blocos e ruído antes da nitidez; custa ~30% mais GPU e pede Nitidez ~2,5. Degradês altos e Antialiasing suavizam textura. A medição exporta tempos GPU; não mede latência do controle. Tratamento salvo para todos os jogos.';panel.append(note);
   // Explicit 2K/4K above the display (e.g. 1080p HDMI to a 4K TV) is scaled back down by the browser.
   const outputWarning=()=>settings.mode==='filtered'&&['1440','2160'].includes(settings.output)&&status.display&&Number(settings.output)>status.display*1.1?`Tela/HDMI em ${status.display}p: saída maior só aumenta custo. Use Automática.\n`:'';
+  // Live decoder line: inbound-rtp video every 2 s while the panel is open.
+  let decoderText='',lastRtp=null,decoderBusy=false,decoderMark=0;
+  const decoderLabels={hardware:'hardware',software:'software (CPU)',unknown:'não informado pelo navegador'};
+  async function updateDecoder(){
+   const pc=peer();if(!pc?.getStats||decoderBusy||Date.now()-decoderMark<2000)return;decoderBusy=true;decoderMark=Date.now();
+   try{let rtp=null;(await pc.getStats()).forEach(item=>{if(item.type==='inbound-rtp'&&item.kind==='video')rtp=item;});
+    const d=BxRestoration.decoderSummary(lastRtp,rtp);lastRtp=rtp;
+    decoderText=d?`Decodificação: ${decoderLabels[d.kind]}${d.implementation?' ('+d.implementation+')':''} • DT ${d.dtMs===null?'—':d.dtMs.toFixed(1)+' ms'}\n`:'';}
+   catch{decoderText='';}finally{decoderBusy=false;}
+  }
   let interval=null;
   const refresh=()=>{
+   updateDecoder();
    syncDiagnostic();
    if(status.mode==='error')report.textContent='Erro: '+status.error;
-   else if(!status.lastFrame||Date.now()-status.lastFrame>2500)report.textContent='Sem quadros recentes. Selecione WebGL2 durante o jogo.';
-   else report.textContent=`${outputWarning()}${status.mode} • ${status.resolution} • ${status.frames} quadros • ${status.fps?.toFixed(1)||'—'} FPS\n${status.measurement==='gpu'?`GPU total p95: ${status.gpuP95?.toFixed(2)||'—'} ms`:'Sem medição GPU; apenas cadência'} ${status.adaptation}`;
+   else if(!status.lastFrame||Date.now()-status.lastFrame>2500)report.textContent=decoderText+'Sem quadros recentes. Selecione WebGL2 durante o jogo.';
+   else report.textContent=`${outputWarning()}${decoderText}${status.mode} • ${status.resolution} • ${status.frames} quadros • ${status.fps?.toFixed(1)||'—'} FPS\n${status.measurement==='gpu'?`GPU total p95: ${status.gpuP95?.toFixed(2)||'—'} ms`:'Sem medição GPU; apenas cadência'} ${status.adaptation}`;
   };
   // Rebuilt menu instances must not retain timers after removal.
   const observer=new MutationObserver(()=>{
