@@ -125,19 +125,25 @@ test('decoder summary reports DT like Better xCloud and the decoder kind when ex
  assert.equal(a.decoderSummary(null,null),null);
 });
 
-test('only the H.264 High codec test remains; earlier AV1/H.265/VP9 choices fall back to auto',()=>{
- const a=api(),caps=[{mimeType:'video/VP8'},{mimeType:'video/AV1'},{mimeType:'video/rtx'}];
- for(const c of ['av1','h265','vp9'])assert.equal(a.normalize({codec:c}).codec,'auto');
- assert.equal(a.filterCodecs(caps,'av1'),null);assert.equal(a.filterCodecs(caps,'h264high').length,0);assert.equal(a.defaults.codec,'auto');
-});
 
-test('H.264 High test keeps only profile 64 and reports profiles from fmtp',()=>{
+test('H.264 profile and latency summary from WebRTC stats; codec test removed',()=>{
  const a=api();
  assert.equal(a.h264Profile('level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=640c1f'),'High');
  assert.equal(a.h264Profile('profile-level-id=4d001f'),'Main');assert.equal(a.h264Profile('profile-level-id=42e01f'),'Baseline');assert.equal(a.h264Profile(''),null);
- const caps=[{mimeType:'video/H264',sdpFmtpLine:'profile-level-id=42e01f'},{mimeType:'video/H264',sdpFmtpLine:'profile-level-id=4d001f'},{mimeType:'video/H264',sdpFmtpLine:'profile-level-id=640c1f'},{mimeType:'video/rtx'}];
- assert.deepEqual(JSON.parse(JSON.stringify(a.filterCodecs(caps,'h264high').map(c=>c.sdpFmtpLine||c.mimeType))),['profile-level-id=640c1f','video/rtx']);
- assert.equal(a.filterCodecs(caps.slice(0,2),'h264high').length,0);assert.equal(a.normalize({codec:'h264high'}).codec,'h264high');
+ assert.equal(a.filterCodecs,undefined);assert.equal('codec' in a.normalize({codec:'h264high'}),false);
  const d=a.decoderSummary({framesDecoded:0,totalDecodeTime:0,jitterBufferDelay:0,jitterBufferEmittedCount:0},{framesDecoded:30,totalDecodeTime:.3,jitterBufferDelay:.45,jitterBufferEmittedCount:30,framesPerSecond:30});
  assert.ok(Math.abs(d.jitterMs-15)<1e-9);assert.ok(Math.abs(d.dtMs-10)<1e-9);assert.equal(d.fps,30);
+});
+test('frame pacing reports interval, deviation and hitches',()=>{
+ const a=api(),steady=[...Array(61)].map((_,i)=>i*33.3);const s=a.frameStats(steady);
+ assert.ok(Math.abs(s.meanMs-33.3)<1e-6&&s.deviationMs<1e-6&&s.hitches===0&&s.frames===60);
+ const uneven=[0,33,66,120,133,166,199,260,266];const u=a.frameStats(uneven);assert.equal(u.hitches,2);assert.ok(u.deviationMs>10);
+ assert.equal(a.frameStats([0,33]),null);
+});
+test('smoothing sets the WebRTC video buffer floor and restores the default',()=>{
+ const a=api();assert.equal(a.defaults.smoothing,0);assert.equal(a.normalize({smoothing:33}).smoothing,33);assert.equal(a.normalize({smoothing:99}).smoothing,0);
+ const video={track:{kind:'video'},jitterBufferTarget:null},audio={track:{kind:'audio'},jitterBufferTarget:null},legacy={track:{kind:'video'},playoutDelayHint:null};
+ const peer={getReceivers:()=>[video,audio,legacy]};
+ assert.equal(a.applySmoothing(peer,33),2);assert.equal(video.jitterBufferTarget,33);assert.equal(audio.jitterBufferTarget,null);assert.ok(Math.abs(legacy.playoutDelayHint-.033)<1e-9);
+ a.applySmoothing(peer,0);assert.equal(video.jitterBufferTarget,null);assert.equal(legacy.playoutDelayHint,null);assert.equal(a.applySmoothing(null,33),0);
 });

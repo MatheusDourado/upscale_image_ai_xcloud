@@ -2,7 +2,7 @@
 (() => {
   // v9 defaults come from tools/eval (docs/analysis-v9.md): same sharpness as the clean
   // render with the highest fidelity on xCloud-like H.264 streams.
-  const defaults = Object.freeze({mode:'filtered',codec:'auto',neural:0,cleanup:.5,deband:.3,chroma:.75,detail:.2,temporal:0,upscale:true,output:'auto',antialias:0,gpuBudget:6,sharpness:3,processing:'cas',sharpening:'usm',spatialMode:'selective',lumaSharpen:true,noiseFloor:4,processingMode:'performance',contrast:1,saturation:1,shadows:0});
+  const defaults = Object.freeze({mode:'filtered',smoothing:0,neural:0,cleanup:.5,deband:.3,chroma:.75,detail:.2,temporal:0,upscale:true,output:'auto',antialias:0,gpuBudget:6,sharpness:3,processing:'cas',sharpening:'usm',spatialMode:'selective',lumaSharpen:true,noiseFloor:4,processingMode:'performance',contrast:1,saturation:1,shadows:0});
   function normalize(value={}) {
     if(!value || typeof value!=='object')value={};
     const result={...defaults};
@@ -10,7 +10,7 @@
     if([0,3,6,10].includes(value.gpuBudget))result.gpuBudget=value.gpuBudget;
     if(['original','cas','filtered'].includes(value.mode))result.mode=value.mode;
     if(['usm','cas','rcas','native'].includes(value.sharpening))result.sharpening=value.sharpening;
-    if(['auto','h264high'].includes(value.codec))result.codec=value.codec;
+    if([0,17,33,50].includes(value.smoothing))result.smoothing=value.smoothing;
     if(['selective','legacy'].includes(value.spatialMode))result.spatialMode=value.spatialMode;
     if(['cas','usm'].includes(value.processing))result.processing=value.processing;
     if(['performance','quality'].includes(value.processingMode))result.processingMode=value.processingMode;
@@ -82,7 +82,7 @@
         if(count>=120000)return;segment.gpu.push(ms);count++;
       },
       disjoint(){if(recording)disjoints++;},
-      report(){return {schema:1,version:'9.4',build:globalThis.BxBuild??null,started,ended,stopReason,recording,metadata,disjoints,sampleLimit:120000,truncated:count>=120000||segments.length>=256,
+      report(){return {schema:1,version:'9.5',build:globalThis.BxBuild??null,started,ended,stopReason,recording,metadata,disjoints,sampleLimit:120000,truncated:count>=120000||segments.length>=256,
         segments:segments.map(({config,frames,first,last,gpu})=>{const sorted=[...gpu].sort((a,b)=>a-b);return {config,frames,durationMs:last-first,drawFps:last>first?(frames-1)*1000/(last-first):null,gpu:{count:gpu.length,p50:percentile(sorted,.5),p95:percentile(sorted,.95),p99:percentile(sorted,.99),samplesMs:[...gpu]}};})};}
     };
   }
@@ -116,17 +116,27 @@
     return {kind,implementation:current.decoderImplementation||null,dtMs:Number.isFinite(dt)?dt:null,jitterMs:Number.isFinite(jitter)?jitter:null,
       fps:Number.isFinite(current.framesPerSecond)?current.framesPerSecond:null,codec:current.codec||null};
   }
-  // Codec test: video receive codecs restricted to H.264 High (plus RTX/RED/FEC helpers), so the
-  // offer tells the xCloud server we only decode that profile. Empty result: not supported here.
-  // AV1, H.265 and VP9 were tested in v9.3: xCloud accepts only H.264.
-  const codecTypes={h264high:['video/h264']};
-  function filterCodecs(codecs,target){
-    if(!codecTypes[target])return null;
-    const main=codecs.filter(c=>codecTypes[target].includes(c.mimeType.toLowerCase())&&(target!=='h264high'||h264Profile(c.sdpFmtpLine)==='High'));
-    if(!main.length)return [];
-    return [...main,...codecs.filter(c=>['video/rtx','video/red','video/ulpfec','video/flexfec-03'].includes(c.mimeType.toLowerCase()))];
+  // Frame pacing from the arrival times (ms) of new frames: mean interval, deviation, p95 and
+  // "hitches" (intervals over 1.5x the median, i.e. a frame shown late). 30 FPS ideal: 33.3 ms, 0 hitches.
+  function frameStats(times){
+    const d=[];for(let i=1;i<times.length;i++)d.push(times[i]-times[i-1]);
+    if(d.length<3)return null;
+    const sorted=[...d].sort((a,b)=>a-b),median=sorted[Math.floor(sorted.length/2)],mean=d.reduce((a,b)=>a+b,0)/d.length;
+    const deviation=Math.sqrt(d.reduce((a,b)=>a+(b-mean)**2,0)/d.length);
+    return {meanMs:mean,deviationMs:deviation,p95Ms:sorted[Math.ceil(sorted.length*.95)-1],hitches:d.filter(v=>v>median*1.5).length,frames:d.length};
   }
-  function downloadReport(report){const url=URL.createObjectURL(new Blob([JSON.stringify(report,null,2)],{type:'application/json'})),a=document.createElement('a');a.href=url;a.download='bx-v9.4-diagnostics-'+Date.now()+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
+  // Minimum WebRTC video buffer (ms) for smoother pacing; null restores the browser default.
+  // jitterBufferTarget is a floor: actual added delay is the target minus what the network already needs.
+  function applySmoothing(peer,ms){
+    if(!peer?.getReceivers)return 0;let applied=0;
+    for(const r of peer.getReceivers()){
+      if(r.track?.kind!=='video')continue;
+      if('jitterBufferTarget' in r){const v=ms>0?ms:null;if(r.jitterBufferTarget!==v){r.jitterBufferTarget=v;}applied++;}
+      else if('playoutDelayHint' in r){const v=ms>0?ms/1000:null;if(r.playoutDelayHint!==v){r.playoutDelayHint=v;}applied++;}
+    }
+    return applied;
+  }
+  function downloadReport(report){const url=URL.createObjectURL(new Blob([JSON.stringify(report,null,2)],{type:'application/json'})),a=document.createElement('a');a.href=url;a.download='bx-v9.5-diagnostics-'+Date.now()+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
   const vertex='#version 300 es\nlayout(location=0) in vec2 position;void main(){gl_Position=vec4(position,0,1);}';
   class Engine {
     constructor(gl,shaders){
@@ -259,5 +269,5 @@
       gl.deleteTexture(this.input);gl.deleteBuffer(this.buffer);gl.deleteVertexArray(this.vao);this.targets={};this.programs={};this.queries=[];
     }
   }
-  globalThis.BxRestoration={h264Profile,filterCodecs,decoderSummary,createDiagnostics,captureVideoStats,downloadReport,Engine,defaults,normalize,historyValid,createBudget,outputSize,resolveOutput};
+  globalThis.BxRestoration={frameStats,applySmoothing,h264Profile,decoderSummary,createDiagnostics,captureVideoStats,downloadReport,Engine,defaults,normalize,historyValid,createBudget,outputSize,resolveOutput};
 })();

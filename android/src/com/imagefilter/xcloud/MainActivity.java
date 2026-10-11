@@ -2,11 +2,13 @@ package com.imagefilter.xcloud;
 
 import android.app.Activity;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.view.Display;
 import android.view.InputDevice;
 import android.view.KeyEvent;
 import android.view.View;
@@ -14,6 +16,7 @@ import android.view.WindowInsets;
 import android.view.WindowInsetsController;
 import android.view.WindowManager;
 import android.webkit.CookieManager;
+import android.webkit.JavascriptInterface;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
@@ -22,18 +25,25 @@ import android.webkit.WebViewClient;
 import android.widget.Toast;
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
+import java.util.TreeSet;
 
 public class MainActivity extends Activity {
     private static final String START_URL = "https://www.xbox.com/play";
     private WebView webView;
     private String userscript;
     private boolean documentStart;
+    private SharedPreferences prefs;
+    private String refreshRates = "[]";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         WebView.setWebContentsDebuggingEnabled(true);
+
+        prefs = getSharedPreferences("app", MODE_PRIVATE);
+        refreshRates = supportedRefreshRates();
+        applyRefreshRate(prefs.getInt("refreshRate", 0));
 
         webView = new WebView(this);
         webView.setBackgroundColor(Color.BLACK);
@@ -54,6 +64,8 @@ public class MainActivity extends Activity {
         settings.setUserAgentString(settings.getUserAgentString().replace("; wv", "").replace("Version/4.0 ", ""));
         CookieManager.getInstance().setAcceptCookie(true);
         CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true);
+
+        webView.addJavascriptInterface(new Bridge(), "BxAndroid");
 
         userscript = wrap(readAsset("userscript.js"));
         documentStart = DocumentStart.add(webView, userscript, new String[]{"https://www.xbox.com"});
@@ -86,6 +98,53 @@ public class MainActivity extends Activity {
         webView.requestFocus();
         if (savedInstanceState != null) webView.restoreState(savedInstanceState);
         else webView.loadUrl(START_URL);
+    }
+
+    /** Panel bridge (window.BxAndroid): fixed display refresh rate and app info. */
+    private final class Bridge {
+        @JavascriptInterface public String getRefreshRates() { return refreshRates; }
+        @JavascriptInterface public int getRefreshRate() { return prefs.getInt("refreshRate", 0); }
+        @JavascriptInterface public String getAppInfo() { return BuildConfigInfo.VERSION; }
+        @JavascriptInterface public void setRefreshRate(final int hz) {
+            prefs.edit().putInt("refreshRate", Math.max(0, hz)).apply();
+            runOnUiThread(new Runnable() { @Override public void run() { applyRefreshRate(hz); } });
+        }
+    }
+
+    /** Refresh rates offered by the panel: the modes with the current resolution. */
+    private String supportedRefreshRates() {
+        Display display = getWindowManager().getDefaultDisplay();
+        Display.Mode current = display.getMode();
+        TreeSet<Integer> rates = new TreeSet<>();
+        for (Display.Mode mode : display.getSupportedModes()) {
+            if (mode.getPhysicalWidth() == current.getPhysicalWidth() && mode.getPhysicalHeight() == current.getPhysicalHeight()) {
+                rates.add(Math.round(mode.getRefreshRate()));
+            }
+        }
+        return rates.toString().replace(" ", "");
+    }
+
+    /**
+     * 0 lets the system choose (it may switch rates on its own). Otherwise the window asks for the
+     * mode with the current resolution and the closest refresh rate, so frame pacing stays constant.
+     */
+    private void applyRefreshRate(int hz) {
+        WindowManager.LayoutParams params = getWindow().getAttributes();
+        params.preferredDisplayModeId = 0;
+        params.preferredRefreshRate = 0;
+        if (hz > 0) {
+            Display display = getWindowManager().getDefaultDisplay();
+            Display.Mode current = display.getMode(), best = null;
+            for (Display.Mode mode : display.getSupportedModes()) {
+                if (mode.getPhysicalWidth() != current.getPhysicalWidth() || mode.getPhysicalHeight() != current.getPhysicalHeight()) continue;
+                if (best == null || Math.abs(mode.getRefreshRate() - hz) < Math.abs(best.getRefreshRate() - hz)) best = mode;
+            }
+            if (best != null) {
+                params.preferredDisplayModeId = best.getModeId();
+                params.preferredRefreshRate = best.getRefreshRate();
+            }
+        }
+        getWindow().setAttributes(params);
     }
 
     /** Applies the userscript @match/@exclude rules, top frame only, once per document. */

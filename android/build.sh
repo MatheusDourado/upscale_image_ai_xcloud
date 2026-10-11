@@ -8,6 +8,7 @@ OUT=build
 ANDROID_JAR=${ANDROID_JAR:-$OUT/android-34.jar}
 rm -rf "$OUT/gen" "$OUT/classes" "$OUT/assets" "$OUT"/*.apk "$OUT"/*.dex
 mkdir -p "$OUT/gen" "$OUT/classes" "$OUT/assets" dist
+sed -i "s/VERSION = \"[^\"]*\"/VERSION = \"$VERSION\"/" src/com/imagefilter/xcloud/BuildConfigInfo.java
 if [ ! -f "$ANDROID_JAR" ]; then
   # Platform API 34 stubs + framework resources (same content as the SDK's platforms/android-34/android.jar).
   curl -fsSL -o "$ANDROID_JAR" https://raw.githubusercontent.com/Sable/android-platforms/master/android-34/android.jar

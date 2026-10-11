@@ -1,13 +1,13 @@
-# xCloud ImageFilter para Android — v9.4
+# xCloud ImageFilter para Android — v9.5
 
-App Android próprio (WebView) que abre o xCloud e injeta o userscript desta versão (Better xCloud 6.7.12 + tratamento de imagem **v9.4**). **Não é o app oficial do Better xCloud**: o app oficial é de código fechado (o repositório `redphx/better-xcloud-android` só tem o README), então não dá para modificá-lo.
+App Android próprio (WebView) que abre o xCloud e injeta o userscript desta versão (Better xCloud 6.7.12 + tratamento de imagem **v9.5**). **Não é o app oficial do Better xCloud**: o app oficial é de código fechado (o repositório `redphx/better-xcloud-android` só tem o README), então não dá para modificá-lo.
 
 ## Instalar
 
-1. Baixe `android/dist/xcloud-imagefilter-9.4.apk` deste repositório (no GitHub: abra o arquivo → **Download raw file**).
+1. Baixe `android/dist/xcloud-imagefilter-9.5.apk` deste repositório (no GitHub: abra o arquivo → **Download raw file**).
 2. No celular, permita instalar apps da fonte usada (navegador ou gerenciador de arquivos) e instale.
 3. Abra **xCloud ImageFilter**, faça login na conta Microsoft e entre num jogo.
-4. No menu do Better xCloud → **Vídeo**, mantenha o renderizador **WebGL2**. O painel **Tratamento de imagem • v9.4** fica logo abaixo de Nitidez.
+4. No menu do Better xCloud → **Vídeo**, mantenha o renderizador **WebGL2**. O painel **Tratamento de imagem • v9.5** fica logo abaixo de Nitidez.
 
 Pode ser instalado junto com o app oficial: o pacote é outro (`com.imagefilter.xcloud`) e o login é separado.
 
@@ -19,6 +19,8 @@ Pode ser instalado junto com o app oficial: o pacote é outro (`com.imagefilter.
 - **Stream em 1080p**: o xCloud escolhe a resolução pelo sistema informado e manda 720p para Android. Na primeira execução, o app ajusta a **Resolução alvo** do Better xCloud para **1080p (HQ)**, que se apresenta ao servidor como TV. Se você mudar essa opção, a sua escolha é mantida. Vale a partir da próxima sessão de jogo.
 - **Marcado como jogo** (Android Game Mode / HyperOS Game Turbo): adicione o app ao Game Turbo para manter CPU e GPU em desempenho. O downscaling e a troca de FPS pelo sistema ficam desligados.
 - O painel mostra se a decodificação é por hardware (MediaCodec) e o DT por quadro. No Android, ~5–15 ms é normal mesmo com hardware.
+- **Taxa da tela**: no painel, *Taxa da tela (app)* fixa 60/90/120 Hz (ou deixa o sistema decidir). A escolha fica salva no app.
+- **Suavidade**: buffer mínimo de vídeo contra travadinhas em 5G/4G; veja o **Ritmo** no painel.
 - Botão B do controle não fecha o jogo (Android converte B não tratado em "voltar").
 - Depuração remota habilitada: com o celular no PC por USB, abra `chrome://inspect` para ver o console.
 

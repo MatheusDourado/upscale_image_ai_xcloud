@@ -53,7 +53,7 @@ probe=r'''
  prefs['video.processing.mode']='quality';player.updateFrame();check(player.gl.getError()===player.gl.NO_ERROR,'Native quality mode remains valid');
  const qualityPixels=readPlayer();check(Math.abs(qualityPixels[(40*128+20)*4]-85)<=1,'Quality halo limiter preserves uniform region luminance');
  const menu=document.createElement('section');document.body.append(menu);BxImageFilter.mountControls(menu);
- check(menu.querySelector('[data-bx-restoration="v9.4"]')&&!document.getElementById('bx-image-filter-panel'),'Controls mount inside supplied Better xCloud menu');
+ check(menu.querySelector('[data-bx-restoration="v9.5"]')&&!document.getElementById('bx-image-filter-panel'),'Controls mount inside supplied Better xCloud menu');
  check(menu.querySelectorAll("input[type=range]").length===8,"Sharpness, neural, compression, gradient, chroma, detail, temporal and AA sliders added");check(menu.querySelector("input[aria-label=Nitidez]")?.step==="0.5","Panel sharpness slider uses half steps");
  const sharpening=menu.querySelector('[aria-label="Nitidez final"]');sharpening.value='rcas';sharpening.dispatchEvent(new Event('change'));player.updateFrame();
  check(BxImageFilter.settings.sharpening==='rcas'&&player.gl.getError()===player.gl.NO_ERROR,'RCAS selector renders through native adapter');
@@ -70,7 +70,25 @@ probe=r'''
  {let n=0;window.STATES={currentStream:{peerConnection:{getStats:async()=>{n++;return new Map([['v',{type:'inbound-rtp',kind:'video',framesDecoded:100+60*n,totalDecodeTime:.6*n,jitterBufferDelay:.9*n,jitterBufferEmittedCount:60*n,framesPerSecond:30,codecId:'c',powerEfficientDecoder:true,decoderImplementation:'MediaCodec'}],['c',{mimeType:'video/H264',sdpFmtpLine:'profile-level-id=640c1f'}],['p',{type:'candidate-pair',nominated:true,state:'succeeded',currentRoundTripTime:.042}]]);}}}};
   const re=/Codec H264 High • 30 FPS recebidos • Decodificação: hardware \(MediaCodec\)\nLatência: rede \(RTT\) 42\.0 ms • buffer 15\.0 ms • decodificação \(DT\) 10\.0 ms/,status=()=>menu2.querySelector('[role=status]').textContent;
   for(let t=0;t<16&&!re.test(status());t++)await new Promise(r=>setTimeout(r,500));
-  check(re.test(status()),'Panel shows codec profile, FPS, decoder and latency breakdown from WebRTC stats');delete window.STATES;}
+  check(re.test(status()),'Panel shows codec profile, FPS, decoder and latency breakdown from WebRTC stats');
+  // Smoothing reaches the video receiver of the live connection while playing.
+  const receiver={track:{kind:'video'},jitterBufferTarget:null};window.STATES.currentStream.peerConnection.getReceivers=()=>[receiver];
+  BxImageFilter.settings.smoothing=33;await new Promise(r=>setTimeout(r,1100));adapterInput.getContext('2d').fillRect(0,0,4,4);adapterInput.currentTime+=.04;player.updateFrame();
+  check(receiver.jitterBufferTarget===33,'Smoothing sets the WebRTC video buffer floor during play');
+  BxImageFilter.settings.smoothing=0;await new Promise(r=>setTimeout(r,1100));adapterInput.currentTime+=.04;player.updateFrame();check(receiver.jitterBufferTarget===null,'Smoothing off restores the default buffer');
+  // Frame pacing line from the frames the adapter rendered.
+  for(let k=0;k<6;k++){adapterInput.currentTime+=.033;player.updateFrame();await new Promise(r=>setTimeout(r,34));}
+  await new Promise(r=>setTimeout(r,1100));check(/Ritmo: [0-9.]+ ms ± [0-9.]+ • p95 [0-9.]+ ms • \d+ travadas? em 2 s/.test(status()),'Panel shows frame pacing');
+  const copyButton=[...menu2.querySelectorAll('button')].find(b=>b.textContent==='Copiar configuração');copyButton.click();await new Promise(r=>setTimeout(r,200));
+  const exported=JSON.parse(menu2.querySelector('textarea').value);
+  check(exported.treatment&&'smoothing' in exported.treatment&&'stream.video.resolution' in exported.betterXcloud&&exported.build==='6.7.12-imagefilter.9.5','Copy configuration exports treatment and Better xCloud settings');
+  check(!menu2.querySelector('select[aria-label="Codec (teste)"]')&&!menu2.querySelector('select[aria-label="Taxa da tela (app)"]'),'No codec test; refresh-rate control only inside the Android app');
+  delete window.STATES;}
+ // Android app bridge: the refresh-rate selector appears once the bridge exists and calls the app.
+ {let set=null;window.BxAndroid={getRefreshRates:()=>'[60,90,120]',getRefreshRate:()=>0,setRefreshRate:v=>{set=v;}};
+  let sel=null;for(let t=0;t<10&&!(sel=menu2.querySelector('select[aria-label="Taxa da tela (app)"]'));t++)await new Promise(r=>setTimeout(r,300));
+  check(sel&&[...sel.options].map(o=>o.value).join()==='0,60,90,120','Android app shows fixed refresh-rate options');
+  sel.value='120';sel.dispatchEvent(new Event('change'));check(set===120,'Selecting a refresh rate calls the app bridge');delete window.BxAndroid;}
  player.destroy();
  const nextPlayer=new WebGL2Player(adapterInput);await nextPlayer.setupShaders();nextPlayer.updateFrame();BxImageFilter.diagnostic=true;nextPlayer.updateFrame();
  const tint=new Uint8Array(128*96*4);nextPlayer.gl.readPixels(0,0,128,96,nextPlayer.gl.RGBA,nextPlayer.gl.UNSIGNED_BYTE,tint);
@@ -116,16 +134,6 @@ probe=r'''
  const segments=engine.diagnostics.report().segments;
  check(segments.length===2&&segments[1].config.diagnostic,'Diagnostic tint starts a separate measurement segment');
  check(segments[0].config.effective.cleanup===0&&segments[0].config.effective.deband===0&&!segments[0].config.effective.temporal&&segments[0].config.effective.antialias===0,'Original report marks skipped treatments inactive');
- // Codec test: the real WebRTC offer is untouched in Automatic; H.264 High is filtered or reported.
- {const offered=async()=>{const pc=new RTCPeerConnection();pc.addTransceiver('video',{direction:'recvonly'});const o=await pc.createOffer();pc.close();
-   const v=o.sdp.split('m=video')[1].split('m=')[0];return [...new Set([...v.matchAll(/a=rtpmap:\d+ ([^/]+)\//g)].map(m=>m[1].toUpperCase()))];};
-  const saved=BxImageFilter.settings.codec;
-  BxImageFilter.settings.codec='auto';const auto=await offered();
-  check(auto.includes('VP8')&&auto.includes('VP9'),'Automatic codec leaves the offer untouched '+auto.join(','));
-  BxImageFilter.settings.codec='h264high';const high=await offered();
-  check(high.includes('H264')?high.every(c=>['H264','RTX','RED','ULPFEC','FLEXFEC-03'].includes(c)):/não anunciado/.test(BxImageFilter.codecStatus)&&high.includes('VP8'),'H.264 High test filters the offer or reports it unsupported and leaves it untouched');
-  check(!document.querySelector('select[aria-label="Codec (teste)"] option[value=av1]')&&document.querySelectorAll('select[aria-label="Codec (teste)"] option').length===2,'Codec test offers only Automatic and H.264 High');
-  BxImageFilter.settings.codec=saved;BxImageFilter.codecStatus='';}
  const textures=Object.values(engine.targets).map(t=>t.texture);engine.destroy();check(textures.every(t=>!gl.isTexture(t)),'GPU resources released');
  document.getElementById('result').textContent=JSON.stringify({passed:checks});
 })().catch(e=>{document.getElementById('result').textContent=JSON.stringify({error:e.message});console.error(e);});
