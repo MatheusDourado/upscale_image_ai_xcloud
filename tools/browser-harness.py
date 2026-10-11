@@ -53,7 +53,7 @@ probe=r'''
  prefs['video.processing.mode']='quality';player.updateFrame();check(player.gl.getError()===player.gl.NO_ERROR,'Native quality mode remains valid');
  const qualityPixels=readPlayer();check(Math.abs(qualityPixels[(40*128+20)*4]-85)<=1,'Quality halo limiter preserves uniform region luminance');
  const menu=document.createElement('section');document.body.append(menu);BxImageFilter.mountControls(menu);
- check(menu.querySelector('[data-bx-restoration="v9.2"]')&&!document.getElementById('bx-image-filter-panel'),'Controls mount inside supplied Better xCloud menu');
+ check(menu.querySelector('[data-bx-restoration="v9.3"]')&&!document.getElementById('bx-image-filter-panel'),'Controls mount inside supplied Better xCloud menu');
  check(menu.querySelectorAll("input[type=range]").length===8,"Sharpness, neural, compression, gradient, chroma, detail, temporal and AA sliders added");check(menu.querySelector("input[aria-label=Nitidez]")?.step==="0.5","Panel sharpness slider uses half steps");
  const sharpening=menu.querySelector('[aria-label="Nitidez final"]');sharpening.value='rcas';sharpening.dispatchEvent(new Event('change'));player.updateFrame();
  check(BxImageFilter.settings.sharpening==='rcas'&&player.gl.getError()===player.gl.NO_ERROR,'RCAS selector renders through native adapter');
@@ -68,7 +68,7 @@ probe=r'''
  const menu2=document.createElement('section');document.body.append(menu2);BxImageFilter.mountControls(menu2);check(menu2.querySelector('input[aria-label=Compressão]').value==='71'&&!menu.querySelector('[data-bx-restoration]'),'Rebuilt menu retains controls and settings');
  // Live decoder line from a simulated WebRTC connection (two snapshots 2 s apart: 60 frames, 0.6 s decode).
  {let n=0;window.STATES={currentStream:{peerConnection:{getStats:async()=>{n++;return new Map([['v',{type:'inbound-rtp',kind:'video',framesDecoded:100+60*n,totalDecodeTime:.6*n,powerEfficientDecoder:true,decoderImplementation:'MediaCodec'}]]);}}}};
-  const re=/Decodificação: hardware \(MediaCodec\) • DT 10\.0 ms/,status=()=>menu2.querySelector('[role=status]').textContent;
+  const re=/Codec — • Decodificação: hardware \(MediaCodec\) • DT 10\.0 ms/,status=()=>menu2.querySelector('[role=status]').textContent;
   for(let t=0;t<16&&!re.test(status());t++)await new Promise(r=>setTimeout(r,500));
   check(re.test(status()),'Panel shows decoder kind and DT from WebRTC stats');delete window.STATES;}
  player.destroy();
@@ -116,6 +116,17 @@ probe=r'''
  const segments=engine.diagnostics.report().segments;
  check(segments.length===2&&segments[1].config.diagnostic,'Diagnostic tint starts a separate measurement segment');
  check(segments[0].config.effective.cleanup===0&&segments[0].config.effective.deband===0&&!segments[0].config.effective.temporal&&segments[0].config.effective.antialias===0,'Original report marks skipped treatments inactive');
+ // Codec test: the real WebRTC offer advertises only the forced family (plus RTX/RED/FEC).
+ {const offered=async()=>{const pc=new RTCPeerConnection();pc.addTransceiver('video',{direction:'recvonly'});const o=await pc.createOffer();pc.close();
+   const v=o.sdp.split('m=video')[1].split('m=')[0];return [...new Set([...v.matchAll(/a=rtpmap:\d+ ([^/]+)\//g)].map(m=>m[1].toUpperCase()))];};
+  const saved=BxImageFilter.settings.codec;
+  BxImageFilter.settings.codec='vp9';const vp9=await offered();
+  check(vp9.includes('VP9')&&vp9.every(c=>['VP9','RTX','RED','ULPFEC','FLEXFEC-03'].includes(c)),'Forced VP9 offer advertises only VP9 and helpers '+vp9.join(','));
+  BxImageFilter.settings.codec='auto';const auto=await offered();
+  check(auto.includes('VP8')&&auto.includes('VP9'),'Automatic codec leaves the offer untouched '+auto.join(','));
+  BxImageFilter.settings.codec='h265';const h265=await offered();
+  check(h265.includes('H265')?h265.every(c=>['H265','RTX','RED','ULPFEC','FLEXFEC-03'].includes(c)):/não suportado/.test(BxImageFilter.codecStatus),'H.265 test filters the offer or reports it unsupported');
+  BxImageFilter.settings.codec=saved;BxImageFilter.codecStatus='';}
  const textures=Object.values(engine.targets).map(t=>t.texture);engine.destroy();check(textures.every(t=>!gl.isTexture(t)),'GPU resources released');
  document.getElementById('result').textContent=JSON.stringify({passed:checks});
 })().catch(e=>{document.getElementById('result').textContent=JSON.stringify({error:e.message});console.error(e);});
