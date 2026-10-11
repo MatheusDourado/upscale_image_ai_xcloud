@@ -52,6 +52,18 @@ function metrics(out,ref,w,h,region){const n=w*h,A=planes(out,n),B=planes(ref,n)
    const ga=Math.abs(blur(A.Y,i+1)-blur(A.Y,i))+Math.abs(blur(A.Y,i+w)-blur(A.Y,i)),gb=Math.abs(blur(B.Y,i+1)-blur(B.Y,i))+Math.abs(blur(B.Y,i+w)-blur(B.Y,i));
    band+=Math.abs(ga-gb);bn++;}}
  return {psnr:10*Math.log10(255*255/(se/cnt)),chroma:10*Math.log10(255*255/(cse/cnt)),ssim:ssim/sn,detail:hpCross/hpRef,energy:hpOut/hpRef,halo:hn?halo/hn:0,band:bn?band/bn:0};}
+// Sequential frames through one engine (temporal history kept). Flicker: luma change between
+// consecutive outputs that the reference does not have (texture "boiling").
+window.evaluateSequence=async(job)=>{engine.resetBudget();const res=[];let prevOut=null,prevRef=null;
+ for(let k=0;k<job.inputs.length;k++){const input=await image(job.inputs[k]),ref=await image(job.refs[k]);const w=ref.width,h=ref.height;
+  canvas.width=w;canvas.height=h;engine.render(input.canvas,w,h,{gpuBudget:0,...job.settings},1+k/60);
+  const p=new Uint8Array(w*h*4);gl.readPixels(0,0,w,h,gl.RGBA,gl.UNSIGNED_BYTE,p);const out=new Uint8ClampedArray(w*h*4),st=w*4;for(let y=0;y<h;y++)out.set(p.subarray((h-1-y)*st,(h-y)*st),y*st);
+  if(k>=job.from){const m=metrics(out,ref.data,w,h,null);
+   if(prevOut){let f=0;const n=w*h;for(let i=0;i<n;i++){const lo=.2126*out[i*4]+.7152*out[i*4+1]+.0722*out[i*4+2],lpo=.2126*prevOut[i*4]+.7152*prevOut[i*4+1]+.0722*prevOut[i*4+2];
+    const lr=.2126*ref.data[i*4]+.7152*ref.data[i*4+1]+.0722*ref.data[i*4+2],lpr=.2126*prevRef[i*4]+.7152*prevRef[i*4+1]+.0722*prevRef[i*4+2];f+=Math.abs((lo-lpo)-(lr-lpr));}m.flicker=f/n;}
+   res.push(m);}
+  prevOut=out;prevRef=ref.data;}
+ return res;};
 window.evaluate=async(jobs)=>{const results=[];
  for(const job of jobs){const input=await image(job.input),ref=await image(job.ref);
   let out=render(input,job.settings,job.display?input.width:ref.width,job.display?input.height:ref.height);
@@ -90,4 +102,13 @@ class Evaluator:
     def banding(self, settings, target='1080'):
         res = self.run(jobs(settings, target=target, region_sky=True))
         return round(sum(r['band'] for r in res) / len(res), 4)
+    def sequence(self, settings, scenes=SCENES, start=30, end=48, measure_from=8):
+        out = {}
+        for scene in scenes:
+            job = {'inputs': [f'seq/{scene}-{i}.png' for i in range(start, end)], 'refs': [f'seq/{scene}-ref-{i}.png' for i in range(start, end)],
+                   'settings': settings, 'from': measure_from}
+            res = self.page.evaluate('j=>evaluateSequence(j)', job)
+            out[scene] = {k: round(sum(r[k] for r in res if k in r) / max(1, sum(1 for r in res if k in r)), 4) for k in ('ssim', 'psnr', 'detail', 'energy', 'halo', 'flicker')}
+        mean = {k: round(sum(v[k] for v in out.values()) / len(out), 4) for k in ('ssim', 'psnr', 'detail', 'energy', 'halo', 'flicker')}
+        return mean, out
     def close(self): self.b.close(); self.p.stop()

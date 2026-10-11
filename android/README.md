@@ -1,13 +1,13 @@
-# xCloud ImageFilter para Android — v9
+# xCloud ImageFilter para Android — v9.1
 
-App Android próprio (WebView) que abre o xCloud e injeta o userscript desta versão (Better xCloud 6.7.12 + tratamento de imagem **v9**). **Não é o app oficial do Better xCloud**: o app oficial é de código fechado (o repositório `redphx/better-xcloud-android` só tem o README), então não dá para modificá-lo.
+App Android próprio (WebView) que abre o xCloud e injeta o userscript desta versão (Better xCloud 6.7.12 + tratamento de imagem **v9.1**). **Não é o app oficial do Better xCloud**: o app oficial é de código fechado (o repositório `redphx/better-xcloud-android` só tem o README), então não dá para modificá-lo.
 
 ## Instalar
 
-1. Baixe `android/dist/xcloud-imagefilter-9.0.1.apk` deste repositório (no GitHub: abra o arquivo → **Download raw file**).
+1. Baixe `android/dist/xcloud-imagefilter-9.1.apk` deste repositório (no GitHub: abra o arquivo → **Download raw file**).
 2. No celular, permita instalar apps da fonte usada (navegador ou gerenciador de arquivos) e instale.
 3. Abra **xCloud ImageFilter**, faça login na conta Microsoft e entre num jogo.
-4. No menu do Better xCloud → **Vídeo**, mantenha o renderizador **WebGL2**. O painel **Tratamento de imagem • v9** fica logo abaixo de Nitidez.
+4. No menu do Better xCloud → **Vídeo**, mantenha o renderizador **WebGL2**. O painel **Tratamento de imagem • v9.1** fica logo abaixo de Nitidez.
 
 Pode ser instalado junto com o app oficial: o pacote é outro (`com.imagefilter.xcloud`) e o login é separado.
 
@@ -24,7 +24,7 @@ Limitações: **Iniciar/Encerrar e exportar medição** não baixa o JSON no app
 
 ## Sugestão inicial no Poco F7
 
-Use os padrões da v9: saída **Automática** (renderiza na altura real da tela, ~1220–1280 px, com FSR, e aplica a nitidez no tamanho final), Nitidez USM 3, orçamento 6 ms. Para mais nitidez, suba para 4–5. Compare **Novo tratamento** com **Referência: só nitidez**. Se aparecer o aviso de injeção tardia, atualize o **Android System WebView** pela Play Store.
+Use os padrões da v9: saída **Automática** (renderiza na altura real da tela, ~1220–1280 px, com FSR, e aplica a nitidez no tamanho final), Nitidez USM 3, orçamento 6 ms. Para aparência mais natural, prefira Nitidez 2–3: valores altos aumentam a cintilação de textura. Para testar a **Reconstrução neural** (experimental), ligue-a e use Nitidez ~2,5. Compare **Novo tratamento** com **Referência: só nitidez**. Se aparecer o aviso de injeção tardia, atualize o **Android System WebView** pela Play Store.
 
 ## Build
 

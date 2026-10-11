@@ -13,7 +13,7 @@ import glob, os, subprocess, sys
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
 
-SRC = sys.argv[1]
+SRC = sys.argv[1] if __name__ == '__main__' else None
 OUT = 'output/eval'
 W, H, PAN, FRAMES, FPS = 2560, 1440, 4, 48, 60   # pan: master pixels per frame
 SAMPLES = [24, 47]                              # evaluated frames (P-frames after warm-up)
@@ -109,15 +109,19 @@ def decode(path, size, index, out):
                           '-frames:v', '1', '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-'], capture_output=True, check=True).stdout
     Image.frombytes('RGB', (w, h), raw).save(out)
 
-os.makedirs(OUT, exist_ok=True)
-for name, make in [('textures', scene_textures), ('sponza', scene_sponza), ('sky', scene_sky)]:
-    master = make()
-    crops = [animate(master, i) for i in range(FRAMES)]
-    for key, size in SIZES.items():
-        for i in SAMPLES: crops[i].resize(size, Image.LANCZOS).save(f'{OUT}/{name}-ref{key}-{i}.png')
-    frames = [c.resize(SIZES['1080'], Image.LANCZOS) for c in crops]
-    for mbps in (10, 15, 20):
-        path = f'{OUT}/{name}-{mbps}.mp4'
-        encode(frames, SIZES['1080'], mbps, path)
-        for i in SAMPLES: decode(path, SIZES['1080'], i, f'{OUT}/{name}-{mbps}-{i}.png')
-    print('scene', name, 'done')
+def main():
+  os.makedirs(OUT, exist_ok=True)
+  for name, make in [('textures', scene_textures), ('sponza', scene_sponza), ('sky', scene_sky)]:
+      master = make()
+      crops = [animate(master, i) for i in range(FRAMES)]
+      for key, size in SIZES.items():
+          for i in SAMPLES: crops[i].resize(size, Image.LANCZOS).save(f'{OUT}/{name}-ref{key}-{i}.png')
+      frames = [c.resize(SIZES['1080'], Image.LANCZOS) for c in crops]
+      for mbps in (10, 15, 20):
+          path = f'{OUT}/{name}-{mbps}.mp4'
+          encode(frames, SIZES['1080'], mbps, path)
+          for i in SAMPLES: decode(path, SIZES['1080'], i, f'{OUT}/{name}-{mbps}-{i}.png')
+      print('scene', name, 'done')
+
+if __name__ == '__main__':
+    main()

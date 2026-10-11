@@ -107,3 +107,10 @@ test('v8.5 chroma and detail are bounded and degrade last under overload',()=>{
  for(let i=0;i<90;i++)p.sample(9);
  assert.equal(p.enhanceAllowed,false);
 });
+
+test('neural restoration is opt-in, bounded and degraded right after AA',()=>{
+ const a=api();assert.equal(a.defaults.neural,0);assert.equal(a.normalize({neural:5}).neural,1);assert.equal(a.normalize({neural:-1}).neural,0);
+ const p=a.createBudget();p.configure({neural:1,antialias:.5,deband:.3,cleanup:0,output:'native'},1080);
+ for(let i=0;i<90;i++)p.sample(20);assert.equal(p.antialiasAllowed,false);assert.equal(p.neuralAllowed,true);
+ for(let i=0;i<90;i++)p.sample(20);assert.equal(p.neuralAllowed,false);assert.equal(p.debandScale,1);
+});

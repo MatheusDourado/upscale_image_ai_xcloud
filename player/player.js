@@ -5,7 +5,7 @@
  function invalidateCadence(){referenceFps=null;cadence=[];cadenceMark=performance.now();}
  try{if(!gl)throw new Error('WebGL2 indisponível');engine=new BxRestoration.Engine(gl,BxShaders);}catch(e){status.textContent=e.message;return;}
  const inputs=[];
- for(const [key,label,min,max]of [['antialias','Antialiasing',0,100],['cleanup','Compressão',0,100],['deband','Degradês',0,100],['chroma','Cor nas bordas',0,100],['detail','Detalhe',0,100],['temporal','Temporal',0,100],['contrast','Contraste',80,120],['saturation','Saturação',0,130],['shadows','Sombras',0,100]]){
+ for(const [key,label,min,max]of [['neural','Reconstrução neural',0,100],['antialias','Antialiasing',0,100],['cleanup','Compressão',0,100],['deband','Degradês',0,100],['chroma','Cor nas bordas',0,100],['detail','Detalhe',0,100],['temporal','Temporal',0,100],['contrast','Contraste',80,120],['saturation','Saturação',0,130],['shadows','Sombras',0,100]]){
   const row=document.createElement('label'),text=document.createElement('span'),input=document.createElement('input');input.type='range';input.min=min;input.max=max;
   const sync=()=>{input.value=Math.round(settings[key]*100);text.textContent=label+' '+input.value+'%';};inputs.push(sync);sync();input.oninput=()=>{settings[key]=Number(input.value)/100;engine.resetBudget();sync();draw(true);};row.append(text,input);document.querySelector('#controls').append(row);
  }

@@ -85,8 +85,8 @@
  function mountControls(parent){
   if(controlsPanel){parent.append(controlsPanel);return;}
   if(parent.querySelector('[data-bx-restoration]'))return;
-  const panel=controlsPanel=document.createElement('div');panel.dataset.bxRestoration='v9';
-  const title=document.createElement('p');title.textContent='Tratamento de imagem • v9';panel.append(title);
+  const panel=controlsPanel=document.createElement('div');panel.dataset.bxRestoration='v9.1';
+  const title=document.createElement('p');title.textContent='Tratamento de imagem • v9.1';panel.append(title);
   function row(label,control){
    const wrapper=document.createElement('label');wrapper.className='bx-settings-row';
    const text=document.createElement('span');text.className='bx-settings-label';text.textContent=label;
@@ -102,7 +102,7 @@
    const sync=()=>{input.value=settings.sharpness;text.textContent=`Nitidez: ${settings.sharpness===0?'desligada':settings.sharpness.toFixed(1)}`;};sync();inputs.push(sync);
    input.oninput=()=>{settings.sharpness=Number(input.value);activeEngine?.resetBudget();sync();persist();};
   }
-  for(const [name,label]of [['cleanup','Compressão'],['deband','Degradês'],['chroma','Cor nas bordas'],['detail','Detalhe'],['temporal','Estabilidade em movimento'],['antialias','Antialiasing']]){
+  for(const [name,label]of [['neural','Reconstrução neural (exp.)'],['cleanup','Compressão'],['deband','Degradês'],['chroma','Cor nas bordas'],['detail','Detalhe'],['temporal','Estabilidade em movimento'],['antialias','Antialiasing']]){
    const input=document.createElement('input');input.type='range';input.min=0;input.max=100;input.step=1;input.className='bx-focusable';input.setAttribute('aria-label',label);
    const text=row(label,input);
    const sync=()=>{input.value=Math.round(settings[name]*100);text.textContent=`${label}: ${input.value}%`;};sync();inputs.push(sync);
@@ -133,7 +133,7 @@
   panel.append(measure,exportReport);
   const reset=document.createElement('button');reset.className='bx-focusable';reset.textContent='Restaurar tratamento';reset.onclick=()=>{api.reset();for(const sync of inputs)sync();choose.value=settings.mode;syncDiagnostic();};panel.append(reset);
   const report=document.createElement('p');report.setAttribute('role','status');panel.append(report);
-  const note=document.createElement('p');note.textContent='v9: padrões medidos em streams H.264 tipo xCloud (docs/analysis-v9.md). Nitidez e método valem para o tratamento e para a referência só nitidez. Saída Automática renderiza na altura real do vídeo na tela: em celulares (ex.: 1220–1280 px) usa FSR e aplica a nitidez já no tamanho final; com HDMI 1080p fica nativa. Degradês altos e Antialiasing suavizam textura. A medição exporta tempos GPU; não mede latência do controle. Tratamento salvo para todos os jogos.';panel.append(note);
+  const note=document.createElement('p');note.textContent='v9: padrões medidos em streams H.264 tipo xCloud (docs/analysis-v9.md). Nitidez e método valem para o tratamento e para a referência só nitidez. Saída Automática renderiza na altura real do vídeo na tela: em celulares (ex.: 1220–1280 px) usa FSR e aplica a nitidez já no tamanho final; com HDMI 1080p fica nativa. Reconstrução neural (experimental, desligada por padrão): rede treinada em streams H.264 limpa blocos e ruído antes da nitidez; custa ~30% mais GPU e pede Nitidez ~2,5. Degradês altos e Antialiasing suavizam textura. A medição exporta tempos GPU; não mede latência do controle. Tratamento salvo para todos os jogos.';panel.append(note);
   // Explicit 2K/4K above the display (e.g. 1080p HDMI to a 4K TV) is scaled back down by the browser.
   const outputWarning=()=>settings.mode==='filtered'&&['1440','2160'].includes(settings.output)&&status.display&&Number(settings.output)>status.display*1.1?`Tela/HDMI em ${status.display}p: saída maior só aumenta custo. Use Automática.\n`:'';
   let interval=null;

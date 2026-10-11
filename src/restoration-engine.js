@@ -2,7 +2,7 @@
 (() => {
   // v9 defaults come from tools/eval (docs/analysis-v9.md): same sharpness as the clean
   // render with the highest fidelity on xCloud-like H.264 streams.
-  const defaults = Object.freeze({mode:'filtered',cleanup:.5,deband:.3,chroma:.75,detail:.2,temporal:0,upscale:true,output:'auto',antialias:0,gpuBudget:6,sharpness:3,processing:'cas',sharpening:'usm',spatialMode:'selective',lumaSharpen:true,noiseFloor:4,processingMode:'performance',contrast:1,saturation:1,shadows:0});
+  const defaults = Object.freeze({mode:'filtered',neural:0,cleanup:.5,deband:.3,chroma:.75,detail:.2,temporal:0,upscale:true,output:'auto',antialias:0,gpuBudget:6,sharpness:3,processing:'cas',sharpening:'usm',spatialMode:'selective',lumaSharpen:true,noiseFloor:4,processingMode:'performance',contrast:1,saturation:1,shadows:0});
   function normalize(value={}) {
     if(!value || typeof value!=='object')value={};
     const result={...defaults};
@@ -15,7 +15,7 @@
     if(['performance','quality'].includes(value.processingMode))result.processingMode=value.processingMode;
     if(typeof value.upscale==='boolean')result.upscale=value.upscale;
     if(typeof value.lumaSharpen==='boolean')result.lumaSharpen=value.lumaSharpen;
-    for(const [key,min,max] of [['antialias',0,1],['sharpness',0,10],['cleanup',0,1],['deband',0,1],['chroma',0,1],['detail',0,1],['temporal',0,1],['contrast',.8,1.2],['noiseFloor',0,8],['saturation',0,1.3],['shadows',0,1]])
+    for(const [key,min,max] of [['neural',0,1],['antialias',0,1],['sharpness',0,10],['cleanup',0,1],['deband',0,1],['chroma',0,1],['detail',0,1],['temporal',0,1],['contrast',.8,1.2],['noiseFloor',0,8],['saturation',0,1.3],['shadows',0,1]])
       if(typeof value[key]==='number'&&Number.isFinite(value[key]))result[key]=Math.min(max,Math.max(min,value[key]));
     return result;
   }
@@ -30,7 +30,7 @@
     return height>sourceHeight*1.04?String(height):'native';
   }
   function outputSize(w,h,output){const height=/^\d+$/.test(output)?Number(output):h;return {width:Math.round(w*height/h),height};}
-  function createBudget(){return {limitMs:3,values:[],p95:null,cadenceOver:0,over:0,temporalAllowed:true,debandScale:1,debandTaps:4,antialiasAllowed:true,cleanupAllowed:true,enhanceAllowed:true,outputCap:Infinity,settings:defaults,sourceHeight:1080,revision:0,reason:'',
+  function createBudget(){return {limitMs:3,values:[],p95:null,cadenceOver:0,over:0,temporalAllowed:true,neuralAllowed:true,debandScale:1,debandTaps:4,antialiasAllowed:true,cleanupAllowed:true,enhanceAllowed:true,outputCap:Infinity,settings:defaults,sourceHeight:1080,revision:0,reason:'',
   configure(settings,height){this.settings=normalize(settings);this.sourceHeight=height;},
   outputFor(settings){
     if(settings.mode!=='filtered'||settings.gpuBudget===0||settings.output==='native'||this.outputCap===Infinity)return settings.output;
@@ -45,6 +45,7 @@
       this.reason='Saída reduzida para '+(this.outputCap===this.sourceHeight?'nativa':this.outputCap+'p')+' para preservar fluidez';
     }
     else if(s.antialias>0&&this.antialiasAllowed){this.antialiasAllowed=false;this.reason='Antialiasing desligado para preservar fluidez';}
+    else if(s.neural>0&&this.neuralAllowed){this.neuralAllowed=false;this.reason='Reconstrução neural desligada para preservar fluidez';}
     else if(s.deband>0&&this.debandScale>0){this.debandScale=Math.max(0,this.debandScale-.5);this.debandTaps=this.debandScale>0?2:0;this.reason='Degradês reduzidos para preservar fluidez';}
     else if(s.cleanup>0&&this.cleanupAllowed){this.cleanupAllowed=false;this.reason='Limpeza desligada para preservar fluidez';}
     else if((s.detail>0||s.chroma>0)&&this.enhanceAllowed){this.enhanceAllowed=false;this.reason='Detalhe e cor desligados para preservar fluidez';}
@@ -80,7 +81,7 @@
         if(count>=120000)return;segment.gpu.push(ms);count++;
       },
       disjoint(){if(recording)disjoints++;},
-      report(){return {schema:1,version:'9',build:globalThis.BxBuild??null,started,ended,stopReason,recording,metadata,disjoints,sampleLimit:120000,truncated:count>=120000||segments.length>=256,
+      report(){return {schema:1,version:'9.1',build:globalThis.BxBuild??null,started,ended,stopReason,recording,metadata,disjoints,sampleLimit:120000,truncated:count>=120000||segments.length>=256,
         segments:segments.map(({config,frames,first,last,gpu})=>{const sorted=[...gpu].sort((a,b)=>a-b);return {config,frames,durationMs:last-first,drawFps:last>first?(frames-1)*1000/(last-first):null,gpu:{count:gpu.length,p50:percentile(sorted,.5),p95:percentile(sorted,.95),p99:percentile(sorted,.99),samplesMs:[...gpu]}};})};}
     };
   }
@@ -93,7 +94,7 @@
       const codec=stats.get(item.codecId);row.codec=codec?{mimeType:codec.mimeType,sdpFmtpLine:codec.sdpFmtpLine}:null;result.rtc.push(row);
     });}catch{result.rtcUnavailable=true;}return result;
   }
-  function downloadReport(report){const url=URL.createObjectURL(new Blob([JSON.stringify(report,null,2)],{type:'application/json'})),a=document.createElement('a');a.href=url;a.download='bx-v9-diagnostics-'+Date.now()+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
+  function downloadReport(report){const url=URL.createObjectURL(new Blob([JSON.stringify(report,null,2)],{type:'application/json'})),a=document.createElement('a');a.href=url;a.download='bx-v9.1-diagnostics-'+Date.now()+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
   const vertex='#version 300 es\nlayout(location=0) in vec2 position;void main(){gl_Position=vec4(position,0,1);}';
   class Engine {
     constructor(gl,shaders){
@@ -120,6 +121,16 @@
       t={w,h,fp,texture:gl.createTexture(),fbo:gl.createFramebuffer()};this.targets[name]=t;this.configure(t.texture);
       gl.texImage2D(gl.TEXTURE_2D,0,fp?gl.RGBA16F:gl.RGBA8,w,h,0,gl.RGBA,fp?gl.HALF_FLOAT:gl.UNSIGNED_BYTE,null);
       gl.bindFramebuffer(gl.FRAMEBUFFER,t.fbo);gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.TEXTURE_2D,t.texture,0);
+      if(gl.checkFramebufferStatus(gl.FRAMEBUFFER)!==gl.FRAMEBUFFER_COMPLETE)throw new Error('Framebuffer incompleto');return t;
+    }
+    // Two RGBA16F color attachments written by one pass (neural features).
+    targetPair(name,w,h){const gl=this.gl;this.usedTargets?.add(name);let t=this.targets[name];if(t&&t.w===w&&t.h===h)return t;
+      if(t){gl.deleteTexture(t.texture);gl.deleteTexture(t.second);gl.deleteFramebuffer(t.fbo);}
+      t={w,h,fp:true,texture:gl.createTexture(),second:gl.createTexture(),fbo:gl.createFramebuffer()};this.targets[name]=t;
+      gl.bindFramebuffer(gl.FRAMEBUFFER,t.fbo);
+      for(const [i,texture] of [t.texture,t.second].entries()){this.configure(texture);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.NEAREST);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.NEAREST);
+        gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA16F,w,h,0,gl.RGBA,gl.HALF_FLOAT,null);gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0+i,gl.TEXTURE_2D,texture,0);}
+      gl.drawBuffers([gl.COLOR_ATTACHMENT0,gl.COLOR_ATTACHMENT1]);
       if(gl.checkFramebufferStatus(gl.FRAMEBUFFER)!==gl.FRAMEBUFFER_COMPLETE)throw new Error('Framebuffer incompleto');return t;
     }
     draw(name,target,w,h,textures={},uniforms={}){
@@ -151,7 +162,7 @@
       this.poll();let q=null;
       const revision=this.budget.revision;
       const filtered=s.mode==='filtered';
-      const segment=this.diagnostics.active?this.diagnostics.frame({settings:s,diagnostic,source:[w,h],output:[outW,outH],revision,effective:{temporal:filtered&&s.temporal>0&&this.budget.temporalAllowed,cleanup:filtered&&this.budget.cleanupAllowed?s.cleanup:0,chroma:filtered&&this.budget.enhanceAllowed?s.chroma:0,detail:filtered&&this.budget.enhanceAllowed?s.detail:0,deband:filtered?s.deband*this.budget.debandScale:0,debandTaps:filtered&&s.deband>0?this.budget.debandTaps:0,antialias:filtered&&this.budget.antialiasAllowed?s.antialias:0}},performance.now()):null;
+      const segment=this.diagnostics.active?this.diagnostics.frame({settings:s,diagnostic,source:[w,h],output:[outW,outH],revision,effective:{neural:filtered&&this.floatTargets&&this.budget.neuralAllowed?s.neural:0,temporal:filtered&&s.temporal>0&&this.budget.temporalAllowed,cleanup:filtered&&this.budget.cleanupAllowed?s.cleanup:0,chroma:filtered&&this.budget.enhanceAllowed?s.chroma:0,detail:filtered&&this.budget.enhanceAllowed?s.detail:0,deband:filtered?s.deband*this.budget.debandScale:0,debandTaps:filtered&&s.deband>0?this.budget.debandTaps:0,antialias:filtered&&this.budget.antialiasAllowed?s.antialias:0}},performance.now()):null;
       this.usedTargets=new Set();
       if(this.ext&&this.queries.length<4){q=gl.createQuery();gl.beginQuery(this.ext.TIME_ELAPSED_EXT,q);}
       try{
@@ -159,6 +170,12 @@
         gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,video);
         let source=this.input;
         if(s.mode==='filtered'){
+          // Neural restoration first: trained on decoded stream luma (tools/nn), needs float targets.
+          if(s.neural>0&&this.floatTargets&&this.budget.neuralAllowed){
+            const features=this.targetPair('nnFeatures',w,h),restored=this.target('neural',w,h,s.processingMode==='quality');
+            this.draw('nnFeatures',features,w,h,{source});
+            this.draw('nnApply',restored,w,h,{source,featA:features.texture,featB:features.second},{strength:s.neural});source=restored.texture;
+          }
           const cleanup=this.budget.cleanupAllowed?s.cleanup:0,deband=s.deband*this.budget.debandScale;
           const chroma=this.budget.enhanceAllowed?s.chroma:0,detail=this.budget.enhanceAllowed?s.detail:0;
           const temporalEnabled=s.temporal>0&&this.budget.temporalAllowed;
@@ -195,7 +212,7 @@
       }finally{
         if(q){gl.endQuery(this.ext.TIME_ELAPSED_EXT);this.queries.push({q,mode:s.mode,revision,segment});}
         for(const [name,t] of Object.entries(this.targets))if(!this.usedTargets.has(name)){
-          gl.deleteTexture(t.texture);gl.deleteFramebuffer(t.fbo);delete this.targets[name];
+          gl.deleteTexture(t.texture);if(t.second)gl.deleteTexture(t.second);gl.deleteFramebuffer(t.fbo);delete this.targets[name];
         }
         this.usedTargets=null;
         gl.bindFramebuffer(gl.FRAMEBUFFER,null);gl.bindVertexArray(null);gl.activeTexture(gl.TEXTURE0);
@@ -204,7 +221,7 @@
     resetHistory(){this.previous=null;}
     resetBudget(){for(const item of this.queries)this.gl.deleteQuery(item.q);this.queries=[];this.budget=createBudget();this.resetHistory();}
     destroy(){const gl=this.gl;
-      for(const t of Object.values(this.targets)){gl.deleteTexture(t.texture);gl.deleteFramebuffer(t.fbo);}
+      for(const t of Object.values(this.targets)){gl.deleteTexture(t.texture);if(t.second)gl.deleteTexture(t.second);gl.deleteFramebuffer(t.fbo);}
       for(const p of Object.values(this.programs))gl.deleteProgram(p.program);
       for(const item of this.queries)gl.deleteQuery(item.q);
       gl.deleteTexture(this.input);gl.deleteBuffer(this.buffer);gl.deleteVertexArray(this.vao);this.targets={};this.programs={};this.queries=[];

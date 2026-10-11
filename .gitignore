@@ -6,3 +6,4 @@ output/playwright/
 .DS_Store
 android/build/
 output/eval/
+output/nn/

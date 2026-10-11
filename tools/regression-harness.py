@@ -79,6 +79,7 @@ html = r'''<!doctype html><meta charset="utf-8"><pre id="result">Running</pre>
  passes=[];render({sharpening:'rcas',sharpness:2,cleanup:.35,deband:.3});check(passes.length===2,'RCAS retains two passes',passes);
  passes=[];render({cleanup:.35,deband:1,chroma:.5,detail:.35,antialias:1,sharpness:2});check(passes.length===2&&!passes.includes('antialias'),'AA is fused into the spatial pass without temporal',passes);
  passes=[];render({antialias:1,temporal:.3},2);check(passes.includes('antialias'),'Temporal keeps AA as a separate pass after history',passes);
+ passes=[];render({neural:1,cleanup:.5,deband:.3,chroma:.75,detail:.2,sharpness:2});check(passes.join()==='nnFeatures,nnApply,spatial,casFiltered','Neural restoration adds two passes before the spatial pass',passes);
  passes=[];render({});check(passes.length===1,'Disabled treatments bypass intermediate passes',passes);
  check(Object.keys(engine.targets).length===0,'Disabled treatments release unused intermediate textures',Object.keys(engine.targets));
  {let seed=7;const rnd=()=>(seed=(seed*1103515245+12345)%2147483648)/2147483648;
@@ -93,12 +94,18 @@ html = r'''<!doctype html><meta charset="utf-8"><pre id="result">Running</pre>
   const flat=render({mode:'original'}),luma=render({sharpening:'usm',lumaSharpen:true,sharpness:6}),rgb=render({sharpening:'usm',lumaSharpen:false,sharpness:6});
   const drift=b=>Math.max(...[62,63,64,65].map(x=>{const [r,u]=chroma(b,x),[r0,u0]=chroma(flat,x);return Math.max(Math.abs(r-r0),Math.abs(u-u0));}));
   check(drift(luma)<=2&&drift(rgb)>drift(luma),'Luma-only sharpening keeps edge chroma',{luma:drift(luma),rgb:drift(rgb)});}
+ // Neural restoration changes luma only and does nothing to a flat field.
+ ctx.fillStyle='rgb(90,90,90)';ctx.fillRect(0,0,128,96);
+ {const flat=render({neural:1});check(Math.abs(flat[(40*128+64)*4]-90)<=2,'Neural restoration keeps a flat field',flat[(40*128+64)*4]);}
+ step(60,140);{const off=render({}),on=render({neural:1});check(on.some((v,i)=>v!==off[i]),'Neural restoration changes an edge');}
  // Force the optional float-target capability off; this still uses real WebGL rendering.
  const getExtension=gl.getExtension.bind(gl);gl.getExtension=name=>name==='EXT_color_buffer_float'?null:getExtension(name);
  const fallback=new BxRestoration.Engine(gl,BxShaders);gl.getExtension=getExtension;
  step(50,62);fallback.render(input,128,96,{gpuBudget:0,cleanup:1,deband:.3,sharpness:0,processingMode:'quality'},1);
  const fp=pixels(),levels=new Set(Array.from({length:80},(_,y)=>fp[((y+8)*128+64)*4]));
  check(levels.size>1,'RGBA8 fallback retains dithered gradient levels',[...levels]);
+ passes=[];const fdraw=fallback.draw.bind(fallback);fallback.draw=(name,...args)=>{passes.push(name);return fdraw(name,...args);};
+ fallback.render(input,128,96,{gpuBudget:0,neural:1,cleanup:0,deband:0,chroma:0,detail:0},2);check(!passes.includes('nnFeatures'),'Neural restoration is skipped without float render targets',passes);
  check(gl.getError()===gl.NO_ERROR,'No GL errors');
  engine.destroy();fallback.destroy();
  document.getElementById('result').textContent=JSON.stringify({passed:checks,failures});
