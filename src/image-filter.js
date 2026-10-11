@@ -101,8 +101,8 @@
  function mountControls(parent){
   if(controlsPanel){parent.append(controlsPanel);return;}
   if(parent.querySelector('[data-bx-restoration]'))return;
-  const panel=controlsPanel=document.createElement('div');panel.dataset.bxRestoration='v9.3';
-  const title=document.createElement('p');title.textContent='Tratamento de imagem • v9.3';panel.append(title);
+  const panel=controlsPanel=document.createElement('div');panel.dataset.bxRestoration='v9.4';
+  const title=document.createElement('p');title.textContent='Tratamento de imagem • v9.4';panel.append(title);
   function row(label,control){
    const wrapper=document.createElement('label');wrapper.className='bx-settings-row';
    const text=document.createElement('span');text.className='bx-settings-label';text.textContent=label;
@@ -133,7 +133,7 @@
   selection('Limpeza espacial','spatialMode',[['selective','Seletiva v8'],['legacy','Referência v7.1']]);
   selection('Nitidez final','sharpening',[['usm','USM (recomendado)'],['cas','AMD CAS'],['rcas','AMD RCAS'],['native','Seguir menu nativo (CAS/USM)']]);
   selection('Resolução de saída','output',[['auto','Automática — resolução da tela'],['native','1080p / nativa com tratamento'],['1440','2K — 2560 × 1440'],['2160','4K — 3840 × 2160']]);
-  selection('Codec (teste)','codec',[['auto','Automático (H.264 do xCloud)'],['av1','Forçar AV1 — teste'],['h265','Forçar H.265 — teste'],['vp9','Forçar VP9 — teste']]);
+  selection('Codec (teste)','codec',[['auto','Automático (H.264 do xCloud)'],['h264high','Forçar H.264 High — teste'],['av1','Forçar AV1 — teste'],['h265','Forçar H.265 — teste'],['vp9','Forçar VP9 — teste']]);
   selection('Tratamento na GPU','gpuBudget',[['3','Adaptar acima de 3 ms'],['6','Adaptar acima de 6 ms'],['10','Adaptar acima de 10 ms'],['0','Manter todos os filtros ativos']]);
   const diagnostic=document.createElement('button');diagnostic.className='bx-focusable';
   const syncDiagnostic=()=>diagnostic.textContent=api.diagnostic?'Encerrar diagnóstico':'Diagnóstico: colorir imagem';syncDiagnostic();
@@ -158,10 +158,16 @@
   const decoderLabels={hardware:'hardware',software:'software (CPU)',unknown:'não informado pelo navegador'};
   async function updateDecoder(){
    const pc=peer();if(!pc?.getStats||decoderBusy||Date.now()-decoderMark<2000)return;decoderBusy=true;decoderMark=Date.now();
-   try{let rtp=null;const stats=await pc.getStats();stats.forEach(item=>{if(item.type==='inbound-rtp'&&item.kind==='video')rtp=item;});
-    const codec=rtp&&stats.get?.(rtp.codecId)?.mimeType?.replace('video/','');
+   try{let rtp=null,rtt=null;const stats=await pc.getStats();
+    stats.forEach(item=>{if(item.type==='inbound-rtp'&&item.kind==='video')rtp=item;
+     if(item.type==='candidate-pair'&&item.nominated&&item.state==='succeeded'&&Number.isFinite(item.currentRoundTripTime))rtt=item.currentRoundTripTime*1000;});
+    const info=rtp&&stats.get?.(rtp.codecId),profile=BxRestoration.h264Profile(info?.sdpFmtpLine);
+    const codec=info?.mimeType?.replace('video/','')+(profile?' '+profile:'');
     const d=BxRestoration.decoderSummary(lastRtp,rtp?{...rtp,codec}:null);lastRtp=rtp;
-    decoderText=d?`Codec ${d.codec||'—'} • Decodificação: ${decoderLabels[d.kind]}${d.implementation?' ('+d.implementation+')':''} • DT ${d.dtMs===null?'—':d.dtMs.toFixed(1)+' ms'}\n`:'';}
+    const ms=v=>v===null||v===undefined?'—':v.toFixed(1)+' ms',gpu=status.measurement==='gpu'&&status.gpuP95!==null?status.gpuP95:null;
+    // One line per stage: the network round trip, then what the client adds per frame.
+    decoderText=d?`Codec ${d.codec||'—'} • ${d.fps?Math.round(d.fps)+' FPS recebidos':'FPS —'} • Decodificação: ${decoderLabels[d.kind]}${d.implementation?' ('+d.implementation+')':''}\n`
+     +`Latência: rede (RTT) ${ms(rtt)} • buffer ${ms(d.jitterMs)} • decodificação (DT) ${ms(d.dtMs)} • tratamento ${ms(gpu)}\n`:'';}
    catch{decoderText='';}finally{decoderBusy=false;}
   }
   let interval=null;

@@ -10,7 +10,7 @@
     if([0,3,6,10].includes(value.gpuBudget))result.gpuBudget=value.gpuBudget;
     if(['original','cas','filtered'].includes(value.mode))result.mode=value.mode;
     if(['usm','cas','rcas','native'].includes(value.sharpening))result.sharpening=value.sharpening;
-    if(['auto','av1','h265','vp9'].includes(value.codec))result.codec=value.codec;
+    if(['auto','h264high','av1','h265','vp9'].includes(value.codec))result.codec=value.codec;
     if(['selective','legacy'].includes(value.spatialMode))result.spatialMode=value.spatialMode;
     if(['cas','usm'].includes(value.processing))result.processing=value.processing;
     if(['performance','quality'].includes(value.processingMode))result.processingMode=value.processingMode;
@@ -82,7 +82,7 @@
         if(count>=120000)return;segment.gpu.push(ms);count++;
       },
       disjoint(){if(recording)disjoints++;},
-      report(){return {schema:1,version:'9.3',build:globalThis.BxBuild??null,started,ended,stopReason,recording,metadata,disjoints,sampleLimit:120000,truncated:count>=120000||segments.length>=256,
+      report(){return {schema:1,version:'9.4',build:globalThis.BxBuild??null,started,ended,stopReason,recording,metadata,disjoints,sampleLimit:120000,truncated:count>=120000||segments.length>=256,
         segments:segments.map(({config,frames,first,last,gpu})=>{const sorted=[...gpu].sort((a,b)=>a-b);return {config,frames,durationMs:last-first,drawFps:last>first?(frames-1)*1000/(last-first):null,gpu:{count:gpu.length,p50:percentile(sorted,.5),p95:percentile(sorted,.95),p99:percentile(sorted,.99),samplesMs:[...gpu]}};})};}
     };
   }
@@ -91,30 +91,41 @@
     const result={time:Date.now(),video:video?{width:video.videoWidth,height:video.videoHeight,currentTime:video.currentTime,totalVideoFrames:quality?.totalVideoFrames??null,droppedVideoFrames:quality?.droppedVideoFrames??null}:null,rtc:[]};
     if(peer?.getStats)try{const stats=await peer.getStats();stats.forEach(item=>{
       if(item.type!=='inbound-rtp'||item.kind!=='video')return;
-      const row={};for(const key of ['id','timestamp','ssrc','decoderImplementation','powerEfficientDecoder','framesDecoded','framesDropped','framesReceived','totalDecodeTime','jitterBufferDelay','jitterBufferEmittedCount','freezeCount','totalFreezesDuration','bytesReceived','packetsReceived','packetsLost','jitter'])row[key]=item[key]??null;
-      const codec=stats.get(item.codecId);row.codec=codec?{mimeType:codec.mimeType,sdpFmtpLine:codec.sdpFmtpLine}:null;result.rtc.push(row);
+      const row={};for(const key of ['id','timestamp','ssrc','decoderImplementation','powerEfficientDecoder','framesDecoded','framesPerSecond','framesDropped','framesReceived','totalDecodeTime','jitterBufferDelay','jitterBufferEmittedCount','freezeCount','totalFreezesDuration','bytesReceived','packetsReceived','packetsLost','jitter'])row[key]=item[key]??null;
+      const codec=stats.get(item.codecId);row.codec=codec?{mimeType:codec.mimeType,sdpFmtpLine:codec.sdpFmtpLine,h264Profile:h264Profile(codec.sdpFmtpLine)}:null;result.rtc.push(row);
     });}catch{result.rtcUnavailable=true;}return result;
   }
   // Decoder summary from two inbound-rtp video snapshots: DT as in Better xCloud's stats bar
   // (decode time per frame) plus hardware/software when the browser exposes it. Chrome may hide
   // decoderImplementation/powerEfficientDecoder for privacy; then the kind is 'unknown'.
+  // H.264 profile from profile-level-id (first byte, profile_idc): 42 Baseline, 4d Main, 64 High.
+  function h264Profile(fmtp){
+    const id=/profile-level-id=([0-9a-f]{2})/i.exec(fmtp||'')?.[1]?.toLowerCase();
+    return {'42':'Baseline','4d':'Main','58':'Extended','64':'High'}[id]||null;
+  }
+  // Video pipeline summary from two inbound-rtp snapshots: DT as in Better xCloud's stats bar
+  // (decode time per frame), jitter buffer delay per emitted frame, received FPS, plus
+  // hardware/software when the browser exposes it (Chrome may hide it; then 'unknown').
   function decoderSummary(previous,current){
     if(!current)return null;
     const frames=previous?current.framesDecoded-previous.framesDecoded:0;
     const dt=frames>0?(current.totalDecodeTime-previous.totalDecodeTime)/frames*1000:null;
+    const emitted=previous?current.jitterBufferEmittedCount-previous.jitterBufferEmittedCount:0;
+    const jitter=emitted>0?(current.jitterBufferDelay-previous.jitterBufferDelay)/emitted*1000:null;
     const kind=current.powerEfficientDecoder===true?'hardware':current.powerEfficientDecoder===false?'software':'unknown';
-    return {kind,implementation:current.decoderImplementation||null,dtMs:Number.isFinite(dt)?dt:null,codec:current.codec||null};
+    return {kind,implementation:current.decoderImplementation||null,dtMs:Number.isFinite(dt)?dt:null,jitterMs:Number.isFinite(jitter)?jitter:null,
+      fps:Number.isFinite(current.framesPerSecond)?current.framesPerSecond:null,codec:current.codec||null};
   }
   // Codec test: video receive codecs restricted to one family (plus RTX/RED/FEC helpers), so the
   // offer tells the xCloud server we only decode that codec. Empty result: not supported here.
-  const codecTypes={av1:['video/av1'],h265:['video/h265','video/hevc'],vp9:['video/vp9']};
+  const codecTypes={av1:['video/av1'],h265:['video/h265','video/hevc'],vp9:['video/vp9'],h264high:['video/h264']};
   function filterCodecs(codecs,target){
     if(!codecTypes[target])return null;
-    const main=codecs.filter(c=>codecTypes[target].includes(c.mimeType.toLowerCase()));
+    const main=codecs.filter(c=>codecTypes[target].includes(c.mimeType.toLowerCase())&&(target!=='h264high'||h264Profile(c.sdpFmtpLine)==='High'));
     if(!main.length)return [];
     return [...main,...codecs.filter(c=>['video/rtx','video/red','video/ulpfec','video/flexfec-03'].includes(c.mimeType.toLowerCase()))];
   }
-  function downloadReport(report){const url=URL.createObjectURL(new Blob([JSON.stringify(report,null,2)],{type:'application/json'})),a=document.createElement('a');a.href=url;a.download='bx-v9.3-diagnostics-'+Date.now()+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
+  function downloadReport(report){const url=URL.createObjectURL(new Blob([JSON.stringify(report,null,2)],{type:'application/json'})),a=document.createElement('a');a.href=url;a.download='bx-v9.4-diagnostics-'+Date.now()+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
   const vertex='#version 300 es\nlayout(location=0) in vec2 position;void main(){gl_Position=vec4(position,0,1);}';
   class Engine {
     constructor(gl,shaders){
@@ -247,5 +258,5 @@
       gl.deleteTexture(this.input);gl.deleteBuffer(this.buffer);gl.deleteVertexArray(this.vao);this.targets={};this.programs={};this.queries=[];
     }
   }
-  globalThis.BxRestoration={filterCodecs,decoderSummary,createDiagnostics,captureVideoStats,downloadReport,Engine,defaults,normalize,historyValid,createBudget,outputSize,resolveOutput};
+  globalThis.BxRestoration={h264Profile,filterCodecs,decoderSummary,createDiagnostics,captureVideoStats,downloadReport,Engine,defaults,normalize,historyValid,createBudget,outputSize,resolveOutput};
 })();

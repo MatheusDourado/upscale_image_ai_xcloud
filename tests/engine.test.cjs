@@ -132,3 +132,14 @@ test('codec test keeps only the requested family plus RTX/RED/FEC',()=>{
  assert.equal(a.filterCodecs(caps,'vp9').length,0);assert.equal(a.filterCodecs(caps,'auto'),null);
  assert.equal(a.defaults.codec,'auto');assert.equal(a.normalize({codec:'av1'}).codec,'av1');assert.equal(a.normalize({codec:'x'}).codec,'auto');
 });
+
+test('H.264 High test keeps only profile 64 and reports profiles from fmtp',()=>{
+ const a=api();
+ assert.equal(a.h264Profile('level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=640c1f'),'High');
+ assert.equal(a.h264Profile('profile-level-id=4d001f'),'Main');assert.equal(a.h264Profile('profile-level-id=42e01f'),'Baseline');assert.equal(a.h264Profile(''),null);
+ const caps=[{mimeType:'video/H264',sdpFmtpLine:'profile-level-id=42e01f'},{mimeType:'video/H264',sdpFmtpLine:'profile-level-id=4d001f'},{mimeType:'video/H264',sdpFmtpLine:'profile-level-id=640c1f'},{mimeType:'video/rtx'}];
+ assert.deepEqual(JSON.parse(JSON.stringify(a.filterCodecs(caps,'h264high').map(c=>c.sdpFmtpLine||c.mimeType))),['profile-level-id=640c1f','video/rtx']);
+ assert.equal(a.filterCodecs(caps.slice(0,2),'h264high').length,0);assert.equal(a.normalize({codec:'h264high'}).codec,'h264high');
+ const d=a.decoderSummary({framesDecoded:0,totalDecodeTime:0,jitterBufferDelay:0,jitterBufferEmittedCount:0},{framesDecoded:30,totalDecodeTime:.3,jitterBufferDelay:.45,jitterBufferEmittedCount:30,framesPerSecond:30});
+ assert.ok(Math.abs(d.jitterMs-15)<1e-9);assert.ok(Math.abs(d.dtMs-10)<1e-9);assert.equal(d.fps,30);
+});
