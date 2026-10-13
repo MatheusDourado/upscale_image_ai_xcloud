@@ -82,7 +82,7 @@
         if(count>=120000)return;segment.gpu.push(ms);count++;
       },
       disjoint(){if(recording)disjoints++;},
-      report(){return {schema:1,version:'9.5',build:globalThis.BxBuild??null,started,ended,stopReason,recording,metadata,disjoints,sampleLimit:120000,truncated:count>=120000||segments.length>=256,
+      report(){return {schema:1,version:'9.5.1',build:globalThis.BxBuild??null,started,ended,stopReason,recording,metadata,disjoints,sampleLimit:120000,truncated:count>=120000||segments.length>=256,
         segments:segments.map(({config,frames,first,last,gpu})=>{const sorted=[...gpu].sort((a,b)=>a-b);return {config,frames,durationMs:last-first,drawFps:last>first?(frames-1)*1000/(last-first):null,gpu:{count:gpu.length,p50:percentile(sorted,.5),p95:percentile(sorted,.95),p99:percentile(sorted,.99),samplesMs:[...gpu]}};})};}
     };
   }
@@ -125,18 +125,27 @@
     const deviation=Math.sqrt(d.reduce((a,b)=>a+(b-mean)**2,0)/d.length);
     return {meanMs:mean,deviationMs:deviation,p95Ms:sorted[Math.ceil(sorted.length*.95)-1],hitches:d.filter(v=>v>median*1.5).length,frames:d.length};
   }
-  // Minimum WebRTC video buffer (ms) for smoother pacing; null restores the browser default.
-  // jitterBufferTarget is a floor: actual added delay is the target minus what the network already needs.
+  // Requested WebRTC buffering target (ms), not a guarantee of actual delay.
+  // The browser may clamp or gradually apply it; null restores its own policy.
   function applySmoothing(peer,ms){
-    if(!peer?.getReceivers)return 0;let applied=0;
+    const result={requestedMs:ms,receivers:0,supported:0,applied:0,failed:0,state:'waiting'};
+    if(!peer?.getReceivers)return result;
     for(const r of peer.getReceivers()){
       if(r.track?.kind!=='video')continue;
-      if('jitterBufferTarget' in r){const v=ms>0?ms:null;if(r.jitterBufferTarget!==v){r.jitterBufferTarget=v;}applied++;}
-      else if('playoutDelayHint' in r){const v=ms>0?ms/1000:null;if(r.playoutDelayHint!==v){r.playoutDelayHint=v;}applied++;}
+      result.receivers++;
+      const key='jitterBufferTarget' in r?'jitterBufferTarget':'playoutDelayHint' in r?'playoutDelayHint':null;
+      if(!key)continue;
+      result.supported++;
+      try{
+        const value=ms>0?(key==='playoutDelayHint'?ms/1000:ms):null;
+        if(r[key]!==value)r[key]=value;
+        if(r[key]===value)result.applied++;else result.failed++;
+      }catch{result.failed++;}
     }
-    return applied;
+    result.state=!result.receivers?'waiting':!result.supported?'unsupported':result.applied===result.receivers?'requested':result.applied?'partial':'error';
+    return result;
   }
-  function downloadReport(report){const url=URL.createObjectURL(new Blob([JSON.stringify(report,null,2)],{type:'application/json'})),a=document.createElement('a');a.href=url;a.download='bx-v9.5-diagnostics-'+Date.now()+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
+  function downloadReport(report){const url=URL.createObjectURL(new Blob([JSON.stringify(report,null,2)],{type:'application/json'})),a=document.createElement('a');a.href=url;a.download='bx-v9.5.1-diagnostics-'+Date.now()+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
   const vertex='#version 300 es\nlayout(location=0) in vec2 position;void main(){gl_Position=vec4(position,0,1);}';
   class Engine {
     constructor(gl,shaders){
@@ -248,7 +257,7 @@
         // One sharpening stage. 'native' follows the Better xCloud menu (CAS/USM). The
         // reference applies the same method and strength with the unmodified upstream shader.
         const method=s.sharpening==='native'?s.processing:s.sharpening;
-        const casName=s.mode==='filtered'?(method==='rcas'?'rcas':'casFiltered'):'cas';const p=this.programs[casName];gl.useProgram(p.program);gl.uniform1i(gl.getUniformLocation(p.program,'filterId'),method==='usm'?1:2);
+        const casName=s.mode!=='original'&&method==='rcas'?'rcas':s.mode==='filtered'?'casFiltered':'cas';const p=this.programs[casName];gl.useProgram(p.program);gl.uniform1i(gl.getUniformLocation(p.program,'filterId'),method==='usm'?1:2);
         this.draw(casName,null,outW,outH,{data:source},{iResolution:[outW,outH],qualityMode:s.mode==='filtered'&&s.processingMode==='quality',rcasStrength:s.sharpness/10,haloMargin:(2+s.sharpness)/255,noiseFloor:s.noiseFloor/255,lumaSharpen:s.lumaSharpen,sharpenFactor:s.mode==='original'?0:s.mode==='cas'?s.sharpness/1.2:s.sharpness/(s.processingMode==='quality'?1:1.2),brightness:1,contrast:s.mode==='filtered'?s.contrast:1,saturation:s.mode==='filtered'?s.saturation:1,shadows:s.mode==='filtered'?s.shadows:0,deband:s.mode==='filtered'?s.deband*this.budget.debandScale:0,diagnostic});
         this.frames++;return true;
       }finally{
