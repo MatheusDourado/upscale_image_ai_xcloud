@@ -1,6 +1,6 @@
 const {test}=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm');
 function load(stored){const calls=[];class WebGL2Player{updateFrame(){calls.push('original');}destroy(){calls.push('destroy');}async setupShaders(){}}
- const context={WebGL2Player,window:{},document:{readyState:'loading',addEventListener(){}},localStorage:{getItem:()=>stored,setItem(){}},console};
+ const context={WebGL2Player,window:{setInterval(){return 1;},clearInterval(){},addEventListener(){}},document:{readyState:'loading',addEventListener(){}},localStorage:{getItem:()=>stored,setItem(){}},console};
  vm.runInNewContext(fs.readFileSync('src/restoration-engine.js','utf8'),context);vm.runInNewContext(fs.readFileSync('src/image-filter.js','utf8'),context);return {context,calls,player:new WebGL2Player()};}
 test('bad saved JSON resets to new conservative settings',()=>{const {context}=load('{broken');assert.equal(context.window.BxImageFilter.settings.cleanup,.5);assert.equal(context.window.BxImageFilter.settings.temporal,0);});
 test('diagnostic does not persist and color defaults stay neutral',()=>{const {context}=load('{"diagnostic":true,"contrast":999}');const a=context.window.BxImageFilter;assert.equal(a.diagnostic,false);assert.equal(a.settings.contrast,1);assert.equal(a.settings.saturation,1);assert.equal(a.status.mode,'waiting');});

@@ -144,6 +144,6 @@ test('smoothing sets the WebRTC video buffer floor and restores the default',()=
  const a=api();assert.equal(a.defaults.smoothing,0);assert.equal(a.normalize({smoothing:33}).smoothing,33);assert.equal(a.normalize({smoothing:99}).smoothing,0);
  const video={track:{kind:'video'},jitterBufferTarget:null},audio={track:{kind:'audio'},jitterBufferTarget:null},legacy={track:{kind:'video'},playoutDelayHint:null};
  const peer={getReceivers:()=>[video,audio,legacy]};
- assert.equal(a.applySmoothing(peer,33),2);assert.equal(video.jitterBufferTarget,33);assert.equal(audio.jitterBufferTarget,null);assert.ok(Math.abs(legacy.playoutDelayHint-.033)<1e-9);
- a.applySmoothing(peer,0);assert.equal(video.jitterBufferTarget,null);assert.equal(legacy.playoutDelayHint,null);assert.equal(a.applySmoothing(null,33),0);
+ assert.equal(a.applySmoothing(peer,33).applied,2);assert.equal(video.jitterBufferTarget,33);assert.equal(audio.jitterBufferTarget,null);assert.ok(Math.abs(legacy.playoutDelayHint-.033)<1e-9);
+ a.applySmoothing(peer,0);assert.equal(video.jitterBufferTarget,null);assert.equal(legacy.playoutDelayHint,null);assert.equal(a.applySmoothing(null,33).state,'waiting');
 });

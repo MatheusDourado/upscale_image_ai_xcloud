@@ -34,6 +34,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
       - name: Ferramentas Android (sem SDK)
         run: sudo apt-get update -q && sudo apt-get install -y -q aapt dalvik-exchange zipalign apksigner
       - name: Userscript e testes
@@ -43,6 +46,16 @@ jobs:
           node --test tests/*.cjs
           node --check better-xcloud-image-filter.user.js
           node --check player/player.js
+      - name: Regressões WebGL e DOM
+        run: |
+          python3 -m pip install playwright==1.60.0
+          python3 -m playwright install --with-deps chromium
+          python3 tools/run-browser-tests.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: browser-test-results
+          path: output/playwright/results.json
       - name: APK
         run: android/build.sh
       - uses: actions/upload-artifact@v4

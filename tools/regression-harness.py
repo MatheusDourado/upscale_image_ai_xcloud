@@ -106,6 +106,15 @@ html = r'''<!doctype html><meta charset="utf-8"><pre id="result">Running</pre>
  check(levels.size>1,'RGBA8 fallback retains dithered gradient levels',[...levels]);
  passes=[];const fdraw=fallback.draw.bind(fallback);fallback.draw=(name,...args)=>{passes.push(name);return fdraw(name,...args);};
  fallback.render(input,128,96,{gpuBudget:0,neural:1,cleanup:0,deband:0,chroma:0,detail:0},2);check(!passes.includes('nnFeatures'),'Neural restoration is skipped without float render targets',passes);
+ // With every spatial treatment disabled, RCAS reference must use exactly the same shader.
+ step(70,95);
+ const rcasOnly={gpuBudget:0,cleanup:0,deband:0,chroma:0,detail:0,temporal:0,antialias:0,neural:0,sharpening:'rcas',sharpness:7};
+ engine.render(input,128,96,{...rcasOnly,mode:'filtered'},3);const rcasFiltered=pixels();
+ engine.render(input,128,96,{...rcasOnly,mode:'cas'},3);const rcasReference=pixels();
+ check(rcasReference.every((v,i)=>v===rcasFiltered[i]),'RCAS reference keeps the selected sharpening algorithm');
+ engine.render(input,128,96,{...rcasOnly,mode:'original'},3);const plain=pixels();
+ engine.render(input,128,96,{...rcasOnly,mode:'original',sharpening:'cas'},3);const plainCas=pixels();
+ check(plain.every((v,i)=>v===plainCas[i]),'Original stays unsharpened with RCAS selected');
  check(gl.getError()===gl.NO_ERROR,'No GL errors');
  engine.destroy();fallback.destroy();
  document.getElementById('result').textContent=JSON.stringify({passed:checks,failures});

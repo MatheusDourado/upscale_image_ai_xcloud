@@ -1,8 +1,8 @@
-# Better xCloud — tratamento experimental v9.5
+# Better xCloud — tratamento experimental v9.5.1
 
 Userscript Windows/Chrome/Tampermonkey baseado no Better xCloud 6.7.12 fornecido em `script.js`. O original foi preservado. A integração anterior foi confirmada pelo diagnóstico magenta no Dell; o tratamento anterior não trouxe ganho perceptível.
 
-A **v9.5** adiciona **Suavidade** (buffer mínimo de vídeo do WebRTC contra travadinhas em rede móvel), medidor de **ritmo de quadros**, **Copiar configuração** e, no app, **taxa de tela fixa**. Veja [notas v9.5](docs/release-v9.5.md).
+A **v9.5.1** corrige perdas de quadros no limitador de FPS, aplica **Suavidade** independentemente do renderizador e mantém RCAS na comparação de referência. O painel distingue o alvo de buffer solicitado do atraso medido; redesenhar o mesmo quadro não infla o ritmo. Veja [notas v9.5.1](docs/release-v9.5.1.md).
 
 A **v9.4** testou o **H.264 High** (o xCloud só aceita H.264) e mostra no painel a latência por etapa: rede, buffer, decodificação e tratamento. Veja [notas v9.4](docs/release-v9.4.md).
 
@@ -28,19 +28,19 @@ A v7.1 corrige as pendências de degradês, halos e movimento da v7. O caminho p
 
 Para o Vostro 3400 ligado à TV por HDMI 1080p, comece em **saída Automática (resolve para nativa), Nitidez 3–5 no painel, orçamento 6 ms, Cor nas bordas 50%, Detalhe 35%, Degradês 30–50%, temporal e AA desligados**. A TV continua responsável por ampliar o sinal recebido para seu painel 4K. Forçar 4K no canvas não cria informação de uma renderização 4K do jogo, nem muda o sinal HDMI.
 
-## Android (v9.5)
+## Android (v9.5.1)
 
-Há um APK de teste em `android/dist/xcloud-imagefilter-9.5.apk`: um app WebView próprio que abre o xCloud com este userscript (v9.5). Veja [android/README.md](android/README.md).
+Há um APK de teste em `android/dist/xcloud-imagefilter-9.5.1.apk`: um app WebView próprio que abre o xCloud com este userscript (v9.5.1). Veja [android/README.md](android/README.md).
 
 ## Instalar
 
 1. Desative outras versões do Better xCloud no Tampermonkey. Não execute duas juntas.
 2. Substitua todo o conteúdo do script experimental por `better-xcloud-image-filter.user.js`, salve e recarregue o xCloud.
 3. Mantenha resolução **1080p HQ**, qualidade **Alta**, bitrate **Ilimitado** e renderizador **WebGL2**.
-4. Abra **Tratamento de imagem • v9.5** no menu do Better xCloud, na seção **Vídeo**, logo após **Nitidez**.
-5. Compare **Referência: só CAS** e **Novo tratamento** na mesma cena, com a mesma Nitidez. **Vídeo original** desliga o tratamento e a nitidez.
+4. Abra **Tratamento de imagem • v9.5.1** no menu do Better xCloud, na seção **Vídeo**, logo após **Nitidez**.
+5. Compare **Referência: só nitidez** e **Novo tratamento** na mesma cena, com a mesma Nitidez. **Vídeo original** desliga o tratamento e a nitidez.
 
-Desde a v8.6, a intensidade vem do slider **Nitidez** do painel (0–10, passo 0,5); o slider nativo do Better xCloud não é usado no tratamento. A seleção AMD CAS/USM e o modo Performance/Qualidade continuam vindo do menu nativo. Há uma única etapa de nitidez após o tratamento e o upscale. **Referência: só CAS** usa a mesma intensidade, sem os demais tratamentos; **Vídeo original** não aplica nitidez.
+Desde a v8.6, a intensidade vem do slider **Nitidez** do painel (0–10, passo 0,5); o slider nativo do Better xCloud não é usado no tratamento. O método vem de **Nitidez final** no painel; a opção **Seguir menu nativo** usa CAS/USM do Better xCloud. O modo Performance/Qualidade continua vindo do menu nativo. Há uma única etapa de nitidez após o tratamento e o upscale. **Referência: só nitidez** usa a mesma intensidade, sem os demais tratamentos; **Vídeo original** não aplica nitidez.
 
 Compressão, degradês, temporal, upscale e diagnóstico ficam no mesmo menu. Os controles experimentais de saturação, contraste e sombras foram removidos; valores antigos dessas correções são neutralizados. O tratamento, incluindo a Nitidez do painel, é salvo para todos os jogos. A v6 também reinicia o tipo do renderizador ao encerrar a sessão para recriar o canvas no jogo seguinte e impede que uma inicialização assíncrona reative um motor já encerrado.
 
@@ -50,7 +50,7 @@ As configurações experimentais usam uma nova chave de armazenamento, sem impor
 
 | Controle | Efeito |
 | --- | --- |
-| Nitidez | 0–10 em passos de 0,5. CAS/USM (ou RCAS) após o tratamento, com limite de halo proporcional à intensidade. Também define a intensidade da referência só CAS. |
+| Nitidez | 0–10 em passos de 0,5. CAS/USM (ou RCAS) após o tratamento, com limite de halo proporcional à intensidade. Também define a intensidade da referência só nitidez. |
 | Compressão | Suaviza pequenos saltos entre regiões uniformes; protege bordas fortes e extremos locais de textura. Não é reconstrução por IA. |
 | Degradês | Suaviza faixas com amostragem até 8 pixels, preservação de textura fina e dithering na quantização. |
 | Cor nas bordas | O vídeo chega com cor em meia resolução (4:2:0) e o navegador a amplia borrada. Em bordas de luma, usa a cor limpa de cada lado (2 px) e a luma do pixel para decidir o lado. Cor fora dessa mistura (linhas finas, texto colorido) é preservada. |
@@ -96,9 +96,9 @@ Requer FFmpeg com libx264. Gera `output/videos/reference.mp4` e versões com alv
 ```sh
 node --test tests/*.cjs
 node --check better-xcloud-image-filter.user.js
-python3 tools/browser-harness.py
-python3 tools/regression-harness.py
-python3 tools/quality-harness.py
+python3 -m pip install playwright==1.60.0
+python3 -m playwright install chromium
+python3 tools/run-browser-tests.py
 ```
 
 Com o servidor acima, abra `/output/playwright/filter-harness.html`, `/output/playwright/regressions-v7.html` e `/output/playwright/motion-quality.html`. Testam shaders reais, modos, dithering, preservação de textura, halos CAS/USM, corte, preto, upscale, adaptação, diagnóstico e liberação de recursos. Ao desenvolver, desative o cache no navegador para não medir um bundle anterior. O player permite validar reprodução de vídeo, exportação e ajustes.

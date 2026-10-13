@@ -45,7 +45,9 @@ probe=r'''
  const readPlayer=()=>{const b=new Uint8Array(player.$canvas.width*player.$canvas.height*4);player.gl.readPixels(0,0,player.$canvas.width,player.$canvas.height,player.gl.RGBA,player.gl.UNSIGNED_BYTE,b);return b;};
  adapterInput.getContext('2d').fillStyle='#555';adapterInput.getContext('2d').fillRect(0,0,64,96);adapterInput.getContext('2d').fillStyle='#999';adapterInput.getContext('2d').fillRect(64,0,64,96);
  BxImageFilter.settings.sharpness=0;player.updateFrame();const noSharp=readPlayer();const beforeSharpCount=player.bxEngine.frames;
+ const pacingCount=player.bxTimes.length;
  BxImageFilter.settings.sharpness=5;player.updateFrame();const withSharp=readPlayer();
+ check(player.bxTimes.length===pacingCount,'Redrawing the same frame after a setting change does not count as a new video frame');
  check(withSharp.some((v,i)=>v!==noSharp[i]),'Panel sharpness changes actual filtered pixels');check(player.bxEngine.frames===beforeSharpCount+1,'Panel sharpness redraws unchanged video frame');
  prefs['video.processing.sharpness']=9;player.updateFrame();check(player.bxEngine.frames===beforeSharpCount+1,'Native sharpness slider does not override the panel');
  BxImageFilter.settings.mode='cas';player.updateFrame();const refFive=readPlayer();BxImageFilter.settings.sharpness=1;player.updateFrame();
@@ -53,7 +55,7 @@ probe=r'''
  prefs['video.processing.mode']='quality';player.updateFrame();check(player.gl.getError()===player.gl.NO_ERROR,'Native quality mode remains valid');
  const qualityPixels=readPlayer();check(Math.abs(qualityPixels[(40*128+20)*4]-85)<=1,'Quality halo limiter preserves uniform region luminance');
  const menu=document.createElement('section');document.body.append(menu);BxImageFilter.mountControls(menu);
- check(menu.querySelector('[data-bx-restoration="v9.5"]')&&!document.getElementById('bx-image-filter-panel'),'Controls mount inside supplied Better xCloud menu');
+ check(menu.querySelector('[data-bx-restoration="v9.5.1"]')&&!document.getElementById('bx-image-filter-panel'),'Controls mount inside supplied Better xCloud menu');
  check(menu.querySelectorAll("input[type=range]").length===8,"Sharpness, neural, compression, gradient, chroma, detail, temporal and AA sliders added");check(menu.querySelector("input[aria-label=Nitidez]")?.step==="0.5","Panel sharpness slider uses half steps");
  const sharpening=menu.querySelector('[aria-label="Nitidez final"]');sharpening.value='rcas';sharpening.dispatchEvent(new Event('change'));player.updateFrame();
  check(BxImageFilter.settings.sharpening==='rcas'&&player.gl.getError()===player.gl.NO_ERROR,'RCAS selector renders through native adapter');
@@ -73,17 +75,29 @@ probe=r'''
   check(re.test(status()),'Panel shows codec profile, FPS, decoder and latency breakdown from WebRTC stats');
   // Smoothing reaches the video receiver of the live connection while playing.
   const receiver={track:{kind:'video'},jitterBufferTarget:null};window.STATES.currentStream.peerConnection.getReceivers=()=>[receiver];
-  BxImageFilter.settings.smoothing=33;await new Promise(r=>setTimeout(r,1100));adapterInput.getContext('2d').fillRect(0,0,4,4);adapterInput.currentTime+=.04;player.updateFrame();
-  check(receiver.jitterBufferTarget===33,'Smoothing sets the WebRTC video buffer floor during play');
+  const smoothing=menu2.querySelector('[aria-label="Suavidade (buffer de vídeo)"]'),budgetBefore=player.bxEngine.budget;
+  smoothing.value='33';smoothing.dispatchEvent(new Event('change'));
+  check(receiver.jitterBufferTarget===33&&player.bxEngine.budget===budgetBefore,'Smoothing applies immediately without rendering or resetting the GPU budget');
+  await new Promise(r=>setTimeout(r,1100));
+  check(/alvo solicitado 33 ms/.test(status()),'Panel distinguishes the requested buffering target from measured delay');
+  window.STATES.currentStream.peerConnection.getReceivers=()=>[{track:{kind:'video'}}];
+  await new Promise(r=>setTimeout(r,2100));check(/não suportado pelo navegador/.test(status()),'Panel reports unsupported smoothing');
+  window.STATES.currentStream.peerConnection.getReceivers=()=>[receiver];
   BxImageFilter.settings.smoothing=0;await new Promise(r=>setTimeout(r,1100));adapterInput.currentTime+=.04;player.updateFrame();check(receiver.jitterBufferTarget===null,'Smoothing off restores the default buffer');
   // Frame pacing line from the frames the adapter rendered.
   for(let k=0;k<6;k++){adapterInput.currentTime+=.033;player.updateFrame();await new Promise(r=>setTimeout(r,34));}
   await new Promise(r=>setTimeout(r,1100));check(/Ritmo: [0-9.]+ ms ± [0-9.]+ • p95 [0-9.]+ ms • \d+ travadas? em 2 s/.test(status()),'Panel shows frame pacing');
   const copyButton=[...menu2.querySelectorAll('button')].find(b=>b.textContent==='Copiar configuração');copyButton.click();await new Promise(r=>setTimeout(r,200));
   const exported=JSON.parse(menu2.querySelector('textarea').value);
-  check(exported.treatment&&'smoothing' in exported.treatment&&'stream.video.resolution' in exported.betterXcloud&&exported.build==='6.7.12-imagefilter.9.5','Copy configuration exports treatment and Better xCloud settings');
+  check(exported.treatment&&'smoothing' in exported.treatment&&'stream.video.resolution' in exported.betterXcloud&&exported.build==='6.7.12-imagefilter.9.5.1','Copy configuration exports treatment and Better xCloud settings');
   check(!menu2.querySelector('select[aria-label="Codec (teste)"]')&&!menu2.querySelector('select[aria-label="Taxa da tela (app)"]'),'No codec test; refresh-rate control only inside the Android app');
   delete window.STATES;}
+ // Exercise the browser's actual receiver setter, without media permissions or a remote service.
+ {const pc=new RTCPeerConnection();const receiver=pc.addTransceiver('video').receiver;
+  const result=BxRestoration.applySmoothing(pc,33);
+  check(result.state==='requested'||result.state==='unsupported','Native WebRTC receiver reports buffering capability');
+  if('jitterBufferTarget' in receiver){check(receiver.jitterBufferTarget===33,'Native receiver accepts the millisecond target');BxRestoration.applySmoothing(pc,0);check(receiver.jitterBufferTarget===null,'Native receiver restores the default target');}
+  pc.close();}
  // Android app bridge: the refresh-rate selector appears once the bridge exists and calls the app.
  {let set=null;window.BxAndroid={getRefreshRates:()=>'[60,90,120]',getRefreshRate:()=>0,setRefreshRate:v=>{set=v;}};
   let sel=null;for(let t=0;t<10&&!(sel=menu2.querySelector('select[aria-label="Taxa da tela (app)"]'));t++)await new Promise(r=>setTimeout(r,300));

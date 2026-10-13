@@ -1,0 +1,68 @@
+const {test}=require('node:test');
+const assert=require('node:assert/strict');
+const fs=require('node:fs'),vm=require('node:vm');
+
+function playerClock(){
+ const source=fs.readFileSync('better-xcloud-image-filter.user.js','utf8');
+ const start=source.indexOf('class BaseCanvasPlayer'),end=source.indexOf('class ',start+10);
+ let now=0;
+ const context={BaseStreamPlayer:class {},performance:{now:()=>now}};
+ vm.createContext(context);vm.runInContext(source.slice(start,end)+';globalThis.Player=BaseCanvasPlayer;',context);
+ // The integration patch must also be present in the shipped userscript.
+ const patch=source.match(/\/\* BEGIN FRAME PACING \*\/([\s\S]*?)\/\* END FRAME PACING \*\//);
+ if(patch)vm.runInContext(patch[1],context);
+ const player=Object.create(context.Player.prototype);
+ return {player,at(time){now=time;return player.shouldDraw();}};
+}
+test('30 FPS cap retains frames arriving alternately at 32 and 34.67 ms',()=>{
+ const {player,at}=playerClock();player.setTargetFps(30);
+ let time=1000,drawn=0;at(time);
+ for(let i=0;i<60;i++){time+=i%2?1000/15-32:32;if(at(time))drawn++;}
+ assert.equal(drawn,60);
+});
+test('30 FPS cap limits a 60 FPS source without long-term drift',()=>{
+ const {player,at}=playerClock();player.setTargetFps(30);
+ let drawn=0;for(let i=0;i<600;i++)if(at(1000+i*1000/60))drawn++;
+ assert.equal(drawn,300);
+});
+test('FPS cap resets after a pause and target changes without catch-up bursts',()=>{
+ const {player,at}=playerClock();player.setTargetFps(30);
+ assert.equal(at(1000),true);assert.equal(at(5000),true);assert.equal(at(5001),false);
+ player.setTargetFps(20);assert.equal(at(5002),true);assert.equal(at(5010),false);assert.equal(at(5052),true);
+ player.setTargetFps(0);assert.equal(at(6000),false);
+ player.setTargetFps(60);assert.equal(at(6001),true);assert.equal(at(6002),true);
+});
+
+function adapter(){
+ const timers=new Map(),events=new Map();let id=0;
+ class WebGL2Player {updateFrame(){}destroy(){}async setupShaders(){}}
+ const context={WebGL2Player,window:{setInterval(fn){timers.set(++id,fn);return id;},clearInterval(id){timers.delete(id);},addEventListener(name,fn){events.set(name,fn);}},
+  document:{},localStorage:{getItem:()=>null,setItem(){}},console,STATES:{currentStream:{}}};
+ vm.createContext(context);
+ vm.runInContext(fs.readFileSync('src/restoration-engine.js','utf8'),context);
+ vm.runInContext(fs.readFileSync('src/image-filter.js','utf8'),context);
+ return {context,timers,events,tick(){for(const fn of timers.values())fn();},api:context.window.BxImageFilter};
+}
+test('smoothing follows live receivers without a WebGL player or an open panel',()=>{
+ const a=adapter(),video={track:{kind:'video'},jitterBufferTarget:null};
+ a.api.settings.smoothing=33;a.context.STATES.currentStream.peerConnection={getReceivers:()=>[video]};a.tick();
+ assert.equal(video.jitterBufferTarget,33);
+ a.api.reset();assert.equal(video.jitterBufferTarget,null);
+});
+test('smoothing releases the old peer and survives page cache suspension',()=>{
+ const a=adapter(),first={track:{kind:'video'},jitterBufferTarget:null},second={track:{kind:'video'},jitterBufferTarget:null};
+ a.api.settings.smoothing=17;a.context.STATES.currentStream.peerConnection={getReceivers:()=>[first]};a.tick();
+ a.context.STATES.currentStream.peerConnection={getReceivers:()=>[second]};a.tick();
+ assert.equal(first.jitterBufferTarget,null);assert.equal(second.jitterBufferTarget,17);
+ a.events.get('pagehide')?.();assert.equal(a.timers.size,0);assert.equal(second.jitterBufferTarget,null);
+ a.events.get('pageshow')?.();assert.equal(a.timers.size,1);assert.equal(second.jitterBufferTarget,17);
+});
+test('smoothing reports missing support and receiver errors without abandoning other receivers',()=>{
+ const a=adapter();a.api.settings.smoothing=33;
+ a.context.STATES.currentStream.peerConnection={getReceivers:()=>[{track:{kind:'video'}}]};a.tick();
+ assert.equal(a.api.status.smoothing.state,'unsupported');
+ const broken={track:{kind:'video'},get jitterBufferTarget(){return null;},set jitterBufferTarget(v){throw Error('unavailable');}};
+ const working={track:{kind:'video'},jitterBufferTarget:null};
+ a.context.STATES.currentStream.peerConnection={getReceivers:()=>[broken,working]};a.tick();
+ assert.equal(working.jitterBufferTarget,33);assert.equal(a.api.status.smoothing.failed,1);
+});

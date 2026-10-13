@@ -1,13 +1,13 @@
-# xCloud ImageFilter para Android — v9.5
+# xCloud ImageFilter para Android — v9.5.1
 
-App Android próprio (WebView) que abre o xCloud e injeta o userscript desta versão (Better xCloud 6.7.12 + tratamento de imagem **v9.5**). **Não é o app oficial do Better xCloud**: o app oficial é de código fechado (o repositório `redphx/better-xcloud-android` só tem o README), então não dá para modificá-lo.
+App Android próprio (WebView) que abre o xCloud e injeta o userscript desta versão (Better xCloud 6.7.12 + tratamento de imagem **v9.5.1**). **Não é o app oficial do Better xCloud**: o app oficial é de código fechado (o repositório `redphx/better-xcloud-android` só tem o README), então não dá para modificá-lo.
 
 ## Instalar
 
-1. Baixe `android/dist/xcloud-imagefilter-9.5.apk` deste repositório (no GitHub: abra o arquivo → **Download raw file**).
+1. Baixe `android/dist/xcloud-imagefilter-9.5.1.apk` deste repositório (no GitHub: abra o arquivo → **Download raw file**).
 2. No celular, permita instalar apps da fonte usada (navegador ou gerenciador de arquivos) e instale.
 3. Abra **xCloud ImageFilter**, faça login na conta Microsoft e entre num jogo.
-4. No menu do Better xCloud → **Vídeo**, mantenha o renderizador **WebGL2**. O painel **Tratamento de imagem • v9.5** fica logo abaixo de Nitidez.
+4. No menu do Better xCloud → **Vídeo**, mantenha o renderizador **WebGL2**. O painel **Tratamento de imagem • v9.5.1** fica logo abaixo de Nitidez.
 
 Pode ser instalado junto com o app oficial: o pacote é outro (`com.imagefilter.xcloud`) e o login é separado.
 
@@ -20,7 +20,7 @@ Pode ser instalado junto com o app oficial: o pacote é outro (`com.imagefilter.
 - **Marcado como jogo** (Android Game Mode / HyperOS Game Turbo): adicione o app ao Game Turbo para manter CPU e GPU em desempenho. O downscaling e a troca de FPS pelo sistema ficam desligados.
 - O painel mostra se a decodificação é por hardware (MediaCodec) e o DT por quadro. No Android, ~5–15 ms é normal mesmo com hardware.
 - **Taxa da tela**: no painel, *Taxa da tela (app)* fixa 60/90/120 Hz (ou deixa o sistema decidir). A escolha fica salva no app.
-- **Suavidade**: buffer mínimo de vídeo contra travadinhas em 5G/4G; veja o **Ritmo** no painel.
+- **Suavidade**: alvo de buffer solicitado ao navegador, independente do renderizador; o painel informa suporte e o atraso medido. Não é uma garantia de latência máxima.
 - Botão B do controle não fecha o jogo (Android converte B não tratado em "voltar").
 - Depuração remota habilitada: com o celular no PC por USB, abra `chrome://inspect` para ver o console.
 
@@ -41,4 +41,4 @@ android/build.sh
 
 O script gera o userscript (`tools/build.py`), baixa o `android.jar` da API 34 se faltar, compila, gera o dex e assina com `android/debug.keystore`. Essa chave é **de teste** (senha `android`) e é fixa para que novas versões instalem por cima; não é segredo nem serve para loja.
 
-Validado aqui: APK assinado (esquema v3), `minSdk 28`, `targetSdk 34`. O script injetado passa em `node --check`, carrega o motor v8.6 numa página `/pt-BR/play` com user-agent Android e não é injetado fora das regras. **Não foi testado num aparelho ou emulador**; a sessão com o xCloud real e o desempenho no Poco F7 estão pendentes.
+Validação da v9.5.1: APK assinado, certificado igual ao da 9.5, `minSdk 28`, `targetSdk 34` e userscript embarcado conferido. Os testes Node e Chrome/WebGL passaram; veja [o relatório](../docs/validation-v9.5.1.md). **Não foi testado num aparelho ou emulador**; a sessão com o xCloud real e o desempenho no Poco F7 estão pendentes.
