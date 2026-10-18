@@ -2,7 +2,7 @@
 (() => {
   // v9 defaults come from tools/eval (docs/analysis-v9.md): same sharpness as the clean
   // render with the highest fidelity on xCloud-like H.264 streams.
-  const defaults = Object.freeze({mode:'filtered',smoothing:0,neural:0,cleanup:.5,deband:.3,chroma:.75,detail:.2,temporal:0,upscale:true,output:'auto',antialias:0,gpuBudget:6,sharpness:3,processing:'cas',sharpening:'usm',spatialMode:'selective',lumaSharpen:true,noiseFloor:4,processingMode:'performance',contrast:1,saturation:1,shadows:0});
+  const defaults = Object.freeze({mode:'filtered',fluidity:'off',smoothing:0,neural:0,cleanup:.5,deband:.3,chroma:.75,detail:.2,temporal:0,upscale:true,output:'auto',antialias:0,gpuBudget:6,sharpness:3,processing:'cas',sharpening:'usm',spatialMode:'selective',lumaSharpen:true,noiseFloor:4,processingMode:'performance',contrast:1,saturation:1,shadows:0});
   function normalize(value={}) {
     if(!value || typeof value!=='object')value={};
     const result={...defaults};
@@ -11,6 +11,7 @@
     if(['original','cas','filtered'].includes(value.mode))result.mode=value.mode;
     if(['usm','cas','rcas','native'].includes(value.sharpening))result.sharpening=value.sharpening;
     if([0,17,33,50].includes(value.smoothing))result.smoothing=value.smoothing;
+    if(['off','balanced','max'].includes(value.fluidity))result.fluidity=value.fluidity;
     if(['selective','legacy'].includes(value.spatialMode))result.spatialMode=value.spatialMode;
     if(['cas','usm'].includes(value.processing))result.processing=value.processing;
     if(['performance','quality'].includes(value.processingMode))result.processingMode=value.processingMode;
@@ -82,7 +83,7 @@
         if(count>=120000)return;segment.gpu.push(ms);count++;
       },
       disjoint(){if(recording)disjoints++;},
-      report(){return {schema:1,version:'9.5.1',build:globalThis.BxBuild??null,started,ended,stopReason,recording,metadata,disjoints,sampleLimit:120000,truncated:count>=120000||segments.length>=256,
+      report(){return {schema:1,version:'9.6',build:globalThis.BxBuild??null,started,ended,stopReason,recording,metadata,disjoints,sampleLimit:120000,truncated:count>=120000||segments.length>=256,
         segments:segments.map(({config,frames,first,last,gpu})=>{const sorted=[...gpu].sort((a,b)=>a-b);return {config,frames,durationMs:last-first,drawFps:last>first?(frames-1)*1000/(last-first):null,gpu:{count:gpu.length,p50:percentile(sorted,.5),p95:percentile(sorted,.95),p99:percentile(sorted,.99),samplesMs:[...gpu]}};})};}
     };
   }
@@ -145,7 +146,51 @@
     result.state=!result.receivers?'waiting':!result.supported?'unsupported':result.applied===result.receivers?'requested':result.applied?'partial':'error';
     return result;
   }
-  function downloadReport(report){const url=URL.createObjectURL(new Blob([JSON.stringify(report,null,2)],{type:'application/json'})),a=document.createElement('a');a.href=url;a.download='bx-v9.5.1-diagnostics-'+Date.now()+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
+  // RTP video timestamps are 90 kHz, 32-bit: unwrap to a monotonic millisecond clock.
+  function createRtpClock(){let last=null,ms=0;return v=>{if(!Number.isFinite(v))return null;if(last===null){last=v;return ms;}
+    let d=(v-last)>>>0;if(d>0x80000000)d-=0x100000000;last=v;ms+=d/90;return ms;};}
+  // Frame pacer ("Fluidez"): frames are processed on arrival and shown on a steady clock instead of
+  // the moment they arrive. balanced: follows the server cadence (RTP capture times) plus an adaptive
+  // delay that grows when a frame comes late and shrinks slowly; max: fixed 30/60 FPS grid, also
+  // evening out an irregular game/server cadence. Without RTP times, the arrival cadence is used.
+  function createPacer(mode='balanced',{minDelay=3,lead=4,maxQueue=2}={}){
+    const queue=[],deltas=[],transits=[];let lastP=null,lastRef=null,cadence=null,dropped=0,extra=null;
+    // Cadence: mean of recent capture (or arrival) intervals, snapped to exact 30/60 FPS when close.
+    function updateCadence(ref){if(lastRef!==null){const d=ref-lastRef;if(d>2&&d<200){deltas.push(d);if(deltas.length>30)deltas.shift();}}lastRef=ref;
+      if(deltas.length>=5){const m=deltas.reduce((a,b)=>a+b,0)/deltas.length;cadence=Math.abs(m-1000/30)<.6?1000/30:Math.abs(m-1000/60)<.4?1000/60:m;}}
+    function schedule(f){
+      const ref=f.rtp??f.arrival;updateCadence(ref);
+      let p;
+      if(mode==='balanced'&&f.rtp!=null){
+        // Like a jitter buffer: delay = 95th percentile of recent transit (arrival - capture) + margin.
+        transits.push(f.arrival-f.rtp);if(transits.length>90)transits.shift();
+        const sorted=[...transits].sort((a,b)=>a-b);p=f.rtp+sorted[Math.min(sorted.length-1,Math.floor(sorted.length*.95))]+minDelay;
+      }else p=lastP===null||!cadence?f.arrival+minDelay:lastP+cadence;
+      if(p<f.arrival)p=f.arrival;
+      // Never let the schedule fall behind real time by more than about a frame and a half.
+      if(cadence&&p-f.arrival>cadence*1.5)p=f.arrival+minDelay;
+      if(lastP!==null&&p<lastP)p=lastP;
+      f.p=p;lastP=p;
+    }
+    return {
+      mode,
+      get queued(){return queue.length;},get pending(){return queue.slice();},get dropped(){return dropped;},get extraDelayMs(){return extra;},get cadenceMs(){return cadence;},
+      add(frame){queue.push(frame);while(queue.length>maxQueue+1){queue.shift();dropped++;}return frame;},
+      attach(rtp){for(let i=queue.length-1;i>=0;i--)if(queue[i].rtp==null&&queue[i].p==null){queue[i].rtp=rtp;return true;}return false;},
+      // Returns the frame to show at this display refresh (or null to keep the current one).
+      tick(now){
+        for(const f of queue)if(f.p==null)schedule(f);
+        let pick=-1;for(let i=0;i<queue.length;i++)if(queue[i].p<=now+lead)pick=i;
+        if(pick<0)return null;
+        if(pick>0)dropped+=pick;
+        const f=queue.splice(0,pick+1).pop();f.shown=now;
+        const delay=now-f.arrival;extra=extra===null?delay:extra*.9+delay*.1;
+        return f;
+      },
+      reset(){queue.length=0;deltas.length=0;transits.length=0;lastP=lastRef=cadence=extra=null;dropped=0;}
+    };
+  }
+  function downloadReport(report){const url=URL.createObjectURL(new Blob([JSON.stringify(report,null,2)],{type:'application/json'})),a=document.createElement('a');a.href=url;a.download='bx-v9.6-diagnostics-'+Date.now()+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
   const vertex='#version 300 es\nlayout(location=0) in vec2 position;void main(){gl_Position=vec4(position,0,1);}';
   class Engine {
     constructor(gl,shaders){
@@ -205,7 +250,9 @@
       this.budget.configure(settings,h);this.poll();
       return outputSize(w,h,this.budget.outputFor(settings));
     }
-    render(video,outW,outH,rawSettings,time,diagnostic=false){
+    // outputTarget: draw the final pass into that persistent texture instead of the canvas, so a
+    // frame pacer can present it later with present(). Names starting with 'paced' stay allocated.
+    render(video,outW,outH,rawSettings,time,diagnostic=false,outputTarget=null){
       const gl=this.gl,s=normalize(rawSettings),w=video.videoWidth||video.width,h=video.videoHeight||video.height;
       if(!w||!h||gl.isContextLost())return false;
       if(this.budget.limitMs!==s.gpuBudget){this.resetBudget();this.budget.limitMs=s.gpuBudget;}
@@ -258,17 +305,21 @@
         // reference applies the same method and strength with the unmodified upstream shader.
         const method=s.sharpening==='native'?s.processing:s.sharpening;
         const casName=s.mode!=='original'&&method==='rcas'?'rcas':s.mode==='filtered'?'casFiltered':'cas';const p=this.programs[casName];gl.useProgram(p.program);gl.uniform1i(gl.getUniformLocation(p.program,'filterId'),method==='usm'?1:2);
-        this.draw(casName,null,outW,outH,{data:source},{iResolution:[outW,outH],qualityMode:s.mode==='filtered'&&s.processingMode==='quality',rcasStrength:s.sharpness/10,haloMargin:(2+s.sharpness)/255,noiseFloor:s.noiseFloor/255,lumaSharpen:s.lumaSharpen,sharpenFactor:s.mode==='original'?0:s.mode==='cas'?s.sharpness/1.2:s.sharpness/(s.processingMode==='quality'?1:1.2),brightness:1,contrast:s.mode==='filtered'?s.contrast:1,saturation:s.mode==='filtered'?s.saturation:1,shadows:s.mode==='filtered'?s.shadows:0,deband:s.mode==='filtered'?s.deband*this.budget.debandScale:0,diagnostic});
+        this.draw(casName,outputTarget?this.target(outputTarget,outW,outH):null,outW,outH,{data:source},{iResolution:[outW,outH],qualityMode:s.mode==='filtered'&&s.processingMode==='quality',rcasStrength:s.sharpness/10,haloMargin:(2+s.sharpness)/255,noiseFloor:s.noiseFloor/255,lumaSharpen:s.lumaSharpen,sharpenFactor:s.mode==='original'?0:s.mode==='cas'?s.sharpness/1.2:s.sharpness/(s.processingMode==='quality'?1:1.2),brightness:1,contrast:s.mode==='filtered'?s.contrast:1,saturation:s.mode==='filtered'?s.saturation:1,shadows:s.mode==='filtered'?s.shadows:0,deband:s.mode==='filtered'?s.deband*this.budget.debandScale:0,diagnostic});
         this.frames++;return true;
       }finally{
         if(q){gl.endQuery(this.ext.TIME_ELAPSED_EXT);this.queries.push({q,mode:s.mode,revision,segment});}
-        for(const [name,t] of Object.entries(this.targets))if(!this.usedTargets.has(name)){
+        for(const [name,t] of Object.entries(this.targets))if(!this.usedTargets.has(name)&&!name.startsWith('paced')){
           gl.deleteTexture(t.texture);if(t.second)gl.deleteTexture(t.second);gl.deleteFramebuffer(t.fbo);delete this.targets[name];
         }
         this.usedTargets=null;
         gl.bindFramebuffer(gl.FRAMEBUFFER,null);gl.bindVertexArray(null);gl.activeTexture(gl.TEXTURE0);
       }
     }
+    // Shows a frame stored by render(...,outputTarget) on the canvas (exact copy at output size).
+    present(name){const t=this.targets[name],gl=this.gl;if(!t||gl.isContextLost())return false;
+      this.draw('copy',null,t.w,t.h,{source:t.texture});gl.bindFramebuffer(gl.FRAMEBUFFER,null);gl.bindVertexArray(null);gl.activeTexture(gl.TEXTURE0);return true;}
+    releasePaced(){const gl=this.gl;for(const [name,t] of Object.entries(this.targets))if(name.startsWith('paced')){gl.deleteTexture(t.texture);gl.deleteFramebuffer(t.fbo);delete this.targets[name];}}
     resetHistory(){this.previous=null;}
     resetBudget(){for(const item of this.queries)this.gl.deleteQuery(item.q);this.queries=[];this.budget=createBudget();this.resetHistory();}
     destroy(){const gl=this.gl;
@@ -278,5 +329,5 @@
       gl.deleteTexture(this.input);gl.deleteBuffer(this.buffer);gl.deleteVertexArray(this.vao);this.targets={};this.programs={};this.queries=[];
     }
   }
-  globalThis.BxRestoration={frameStats,applySmoothing,h264Profile,decoderSummary,createDiagnostics,captureVideoStats,downloadReport,Engine,defaults,normalize,historyValid,createBudget,outputSize,resolveOutput};
+  globalThis.BxRestoration={createPacer,createRtpClock,frameStats,applySmoothing,h264Profile,decoderSummary,createDiagnostics,captureVideoStats,downloadReport,Engine,defaults,normalize,historyValid,createBudget,outputSize,resolveOutput};
 })();

@@ -30,6 +30,40 @@
  window.addEventListener('pagehide',()=>{window.clearInterval(smoothingTimer);smoothingTimer=null;releaseSmoothing();});
  window.addEventListener('pageshow',startSmoothing);
  startSmoothing();
+ // Frame timing per player: capture time on the server (RTP), arrival (WebRTC receive time) and
+ // display time, plus the optional pacer ("Fluidez") that shows processed frames on a steady clock.
+ const keep=(list,value,now)=>{list.push([now,value]);while(list.length>1&&now-list[0][0]>2000)list.shift();};
+ const statsOf=list=>BxRestoration.frameStats(list.map(e=>e[1]));
+ function startTiming(player){
+  if(player.bxTiming)return;
+  const t=player.bxTiming={server:[],arrival:[],display:[],clock:BxRestoration.createRtpClock(),pendingRtp:null,metaId:null,raf:null,pacer:null,shown:null};
+  const video=player.$video;if(!video?.requestVideoFrameCallback)return;
+  // Registered before Better xCloud's own draw callback, so a frame's metadata usually comes first;
+  // attach() covers the opposite order.
+  const onMeta=(now,meta)=>{
+   if(player.isStopped)return;t.metaId=video.requestVideoFrameCallback(onMeta);
+   const rtp=meta&&Number.isFinite(meta.rtpTimestamp)?t.clock(meta.rtpTimestamp):null,at=performance.now();
+   if(rtp!==null)keep(t.server,rtp,at);
+   keep(t.arrival,Number.isFinite(meta?.receiveTime)?meta.receiveTime:at,at);
+   if(rtp!==null&&!(t.pacer&&t.pacer.attach(rtp)))t.pendingRtp=rtp;
+  };
+  t.metaId=video.requestVideoFrameCallback(onMeta);
+ }
+ function stopPacer(player){const t=player.bxTiming;if(!t?.pacer)return;if(t.raf!==null)cancelAnimationFrame(t.raf);t.raf=null;t.pacer=null;t.shown=null;player.bxEngine?.releasePaced();}
+ function stopTiming(player){const t=player.bxTiming;if(!t)return;stopPacer(player);if(t.metaId!==null)player.$video?.cancelVideoFrameCallback?.(t.metaId);player.bxTiming=null;}
+ function ensurePacer(player,mode){
+  const t=player.bxTiming;if(t.pacer?.mode===mode)return t.pacer;
+  stopPacer(player);t.pacer=BxRestoration.createPacer(mode);
+  const tick=()=>{
+   if(!t.pacer||player.isStopped){t.raf=null;return;}
+   t.raf=requestAnimationFrame(tick);
+   const now=performance.now(),f=t.pacer.tick(now);
+   if(f&&player.bxEngine&&player.gl&&!player.gl.isContextLost()&&player.bxEngine.present(f.slot)){t.shown=f.slot;keep(t.display,now,now);player.gl.useProgram(player.program);}
+  };
+  t.raf=requestAnimationFrame(tick);return t.pacer;
+ }
+ // Five persistent output textures: the one on screen, up to three queued, one being written.
+ function freeSlot(t){const used=new Set([t.shown,...t.pacer.pending.map(f=>f.slot)]);for(let i=0;i<5;i++){const name='paced'+i;if(!used.has(name))return name;}return t.pacer.pending[0]?.slot||'paced0';}
  const proto=WebGL2Player.prototype,setup=proto.setupShaders,frame=proto.updateFrame,destroy=proto.destroy;
  function fallback(player){const gl=player.gl;if(gl&&!gl.isContextLost()){gl.bindVertexArray(null);gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,player.bxOriginalTexture);gl.useProgram(player.program);gl.bindFramebuffer(gl.FRAMEBUFFER,null);gl.viewport(0,0,player.$canvas.width,player.$canvas.height);player.updateCanvas();frame.call(player);}}
  proto.setupShaders=async function(){
@@ -38,7 +72,7 @@
   try{this.bxEngine=new BxRestoration.Engine(this.gl,BxShaders);activeEngine=this.bxEngine;activePlayer=this;status.mode='ready';status.error='';}
   catch(error){status.mode='error';status.error=String(error.message||error);console.warn('[Bx Restoration]',error);}
   finally{this.gl.bindVertexArray(null);this.gl.activeTexture(this.gl.TEXTURE0);this.gl.bindTexture(this.gl.TEXTURE_2D,this.bxOriginalTexture);this.gl.useProgram(this.program);}
-  this.bxLastFrame=null;this.bxLastSettings='';this.bxTimes=[];
+  this.bxLastFrame=null;this.bxLastSettings='';this.bxTimes=[];startTiming(this);
   if(!this.bxListeners){
    const reset=()=>{this.bxEngine?.resetHistory();this.bxLastFrame=null;this.bxReferenceFps=null;this.bxTimes=[];this.bxCadenceMark=performance.now();};
    const lost=e=>{e.preventDefault();reset();status.mode='error';status.error='Contexto GPU perdido; aguardando restauração';};
@@ -73,15 +107,27 @@
   // Only user-selected output/source/FPS changes invalidate the comparison.
   const conditions=`${w}:${h}:${settings.output}:${this.targetFps}`;
   if(this.bxConditions!==conditions){this.bxReferenceFps=null;this.bxTimes=[];this.bxCadenceMark=performance.now();this.bxConditions=conditions;}
-  if(this.$canvas.width!==ow||this.$canvas.height!==oh){this.$canvas.width=ow;this.$canvas.height=oh;this.bxEngine.resetHistory();}
+  if(this.$canvas.width!==ow||this.$canvas.height!==oh){this.$canvas.width=ow;this.$canvas.height=oh;this.bxEngine.resetHistory();stopPacer(this);}
   try{
-   if(!this.bxEngine.render(video,ow,oh,renderSettings,time,api.diagnostic))return;
+   const timing=this.bxTiming||(startTiming(this),this.bxTiming);
+   if(settings.fluidity!=='off'){
+    // Process now, show on the pacer's clock. A settings change on the same frame redraws it at once.
+    const pacer=ensurePacer(this,settings.fluidity),slot=newFrame||!timing.shown?freeSlot(timing):timing.shown;
+    if(!this.bxEngine.render(video,ow,oh,renderSettings,time,api.diagnostic,slot))return;
+    timing.lastSlot=slot;
+    if(newFrame||!timing.shown){const rtp=timing.pendingRtp;timing.pendingRtp=null;pacer.add({slot,arrival:performance.now(),rtp});}
+    else if(this.bxEngine.present(slot))this.gl.useProgram(this.program);
+   }else{
+    if(timing.pacer)stopPacer(this);
+    if(!this.bxEngine.render(video,ow,oh,renderSettings,time,api.diagnostic))return;
+    if(newFrame)keep(timing.display,performance.now(),performance.now());
+   }
    this.bxLastFrame=token;this.bxLastSettings=controls;
    status.mode=api.diagnostic?'diagnostic':settings.mode;status.frames=this.bxEngine.frames;status.lastFrame=Date.now();status.resolution=`${w}×${h} → ${ow}×${oh}`;
    status.gpuP95=this.bxEngine.budget.p95;status.measurement=this.bxEngine.ext?'gpu':'cadence';status.adaptation=this.bxEngine.budget.reason;
    status.display=shown;
    const now=performance.now();if(newFrame)this.bxTimes.push(now);while(this.bxTimes.length>1&&now-this.bxTimes[0]>2000)this.bxTimes.shift();
-   status.fps=this.bxTimes.length>1?(this.bxTimes.length-1)*1000/(this.bxTimes.at(-1)-this.bxTimes[0]):null;status.pacing=BxRestoration.frameStats(this.bxTimes);
+   status.fps=this.bxTimes.length>1?(this.bxTimes.length-1)*1000/(this.bxTimes.at(-1)-this.bxTimes[0]):null;status.pacing=statsOf(timing.display)||BxRestoration.frameStats(this.bxTimes);status.origin={server:statsOf(timing.server),arrival:statsOf(timing.arrival)};status.fluidity=timing.pacer?{mode:timing.pacer.mode,extraMs:timing.pacer.extraDelayMs,dropped:timing.pacer.dropped}:null;
    if(newFrame&&now-(this.bxCadenceMark||0)>2000){
     if(settings.mode!=='filtered')this.bxReferenceFps=status.fps;
     else if(!this.bxEngine.ext)this.bxEngine.budget.cadence(this.bxReferenceFps,status.fps);
@@ -91,6 +137,7 @@
   finally{if(this.gl&&!this.gl.isContextLost())this.gl.useProgram(this.program);}
  };
  proto.destroy=function(){
+  stopTiming(this);
   if(activePlayer===this)activePlayer=null;if(activeEngine===this.bxEngine)activeEngine=null;this.bxEngine?.destroy();this.bxEngine=null;
   if(this.bxListeners){const {reset,lost,restored}=this.bxListeners;for(const name of ['seeking','pause','emptied'])this.$video.removeEventListener(name,reset);this.$canvas.removeEventListener('webglcontextlost',lost);this.$canvas.removeEventListener('webglcontextrestored',restored);this.bxListeners=null;}
   status.mode='waiting';status.lastFrame=0;api.diagnostic=false;destroy.call(this);
@@ -99,8 +146,8 @@
  function mountControls(parent){
   if(controlsPanel){parent.append(controlsPanel);return;}
   if(parent.querySelector('[data-bx-restoration]'))return;
-  const panel=controlsPanel=document.createElement('div');panel.dataset.bxRestoration='v9.5.1';
-  const title=document.createElement('p');title.textContent='Tratamento de imagem • v9.5.1';panel.append(title);
+  const panel=controlsPanel=document.createElement('div');panel.dataset.bxRestoration='v9.6';
+  const title=document.createElement('p');title.textContent='Tratamento de imagem • v9.6';panel.append(title);
   function row(label,control){
    const wrapper=document.createElement('label');wrapper.className='bx-settings-row';
    const text=document.createElement('span');text.className='bx-settings-label';text.textContent=label;
@@ -131,6 +178,7 @@
   selection('Limpeza espacial','spatialMode',[['selective','Seletiva v8'],['legacy','Referência v7.1']]);
   selection('Nitidez final','sharpening',[['usm','USM (recomendado)'],['cas','AMD CAS'],['rcas','AMD RCAS'],['native','Seguir menu nativo (CAS/USM)']]);
   selection('Resolução de saída','output',[['auto','Automática — resolução da tela'],['native','1080p / nativa com tratamento'],['1440','2K — 2560 × 1440'],['2160','4K — 3840 × 2160']]);
+  selection('Fluidez (ritmo de exibição)','fluidity',[['off','Desligada — exibe ao chegar'],['balanced','Equilibrada — segue o ritmo do servidor'],['max','Máxima — ritmo fixo 30/60']]);
   selection('Suavidade (buffer de vídeo)','smoothing',[['0','Automático — navegador decide'],['17','Alvo de 17 ms'],['33','Alvo de 33 ms'],['50','Alvo de 50 ms']]);
   selection('Tratamento na GPU','gpuBudget',[['3','Adaptar acima de 3 ms'],['6','Adaptar acima de 6 ms'],['10','Adaptar acima de 10 ms'],['0','Manter todos os filtros ativos']]);
   const diagnostic=document.createElement('button');diagnostic.className='bx-focusable';
@@ -147,7 +195,7 @@
   panel.append(measure,exportReport);
   const reset=document.createElement('button');reset.className='bx-focusable';reset.textContent='Restaurar tratamento';reset.onclick=()=>{api.reset();for(const sync of inputs)sync();choose.value=settings.mode;syncDiagnostic();};panel.append(reset);
   const report=document.createElement('p');report.setAttribute('role','status');panel.append(report);
-  const note=document.createElement('p');note.textContent='v9: padrões medidos em streams H.264 tipo xCloud (docs/analysis-v9.md). Nitidez e método valem para o tratamento e para a referência só nitidez. Saída Automática renderiza na altura real do vídeo na tela: em celulares (ex.: 1220–1280 px) usa FSR e aplica a nitidez já no tamanho final; com HDMI 1080p fica nativa. Suavidade: solicita um alvo de buffer ao navegador, que pode ajustá-lo conforme a rede. Pode melhorar a regularidade com mais latência; não garante um atraso máximo. Compare o alvo solicitado com o buffer medido na linha de latência. Reconstrução neural (experimental, desligada por padrão): rede treinada em streams H.264 limpa blocos e ruído antes da nitidez; custa ~30% mais GPU e pede Nitidez ~2,5. Degradês altos e Antialiasing suavizam textura. A medição exporta tempos GPU; não mede latência do controle. Tratamento salvo para todos os jogos.';panel.append(note);
+  const note=document.createElement('p');note.textContent='v9: padrões medidos em streams H.264 tipo xCloud (docs/analysis-v9.md). Nitidez e método valem para o tratamento e para a referência só nitidez. Saída Automática renderiza na altura real do vídeo na tela: em celulares (ex.: 1220–1280 px) usa FSR e aplica a nitidez já no tamanho final; com HDMI 1080p fica nativa. Fluidez: processa cada quadro ao chegar e o exibe num relógio constante (Equilibrada segue o ritmo do servidor; Máxima impõe 30/60 fixo), com alguns ms de espera mostrados no painel. Suavidade: solicita um alvo de buffer ao navegador, que pode ajustá-lo conforme a rede. Pode melhorar a regularidade com mais latência; não garante um atraso máximo. Compare o alvo solicitado com o buffer medido na linha de latência. Reconstrução neural (experimental, desligada por padrão): rede treinada em streams H.264 limpa blocos e ruído antes da nitidez; custa ~30% mais GPU e pede Nitidez ~2,5. Degradês altos e Antialiasing suavizam textura. A medição exporta tempos GPU; não mede latência do controle. Tratamento salvo para todos os jogos.';panel.append(note);
   // Explicit 2K/4K above the display (e.g. 1080p HDMI to a 4K TV) is scaled back down by the browser.
   const outputWarning=()=>settings.mode==='filtered'&&['1440','2160'].includes(settings.output)&&status.display&&Number(settings.output)>status.display*1.1?`Tela/HDMI em ${status.display}p: saída maior só aumenta custo. Use Automática.\n`:'';
   // Live decoder line: inbound-rtp video every 2 s while the panel is open.
@@ -168,7 +216,11 @@
    catch{decoderText='';}finally{decoderBusy=false;}
   }
   // Frame pacing of the last 2 s: steady 30 FPS shows ~33.3 ms, small deviation and 0 hitches.
-  const pacingText=()=>{const p=status.pacing;return p?`Ritmo: ${p.meanMs.toFixed(1)} ms ± ${p.deviationMs.toFixed(1)} • p95 ${p.p95Ms.toFixed(1)} ms • ${p.hitches} travada${p.hitches===1?'':'s'} em 2 s\n`:'';};
+  const pacingText=()=>{const p=status.pacing;if(!p)return '';
+   const o=status.origin||{},fmt=x=>x?`${x.meanMs.toFixed(1)} ± ${x.deviationMs.toFixed(1)}`:'—',f=status.fluidity;
+   return `Ritmo na tela: ${p.meanMs.toFixed(1)} ms ± ${p.deviationMs.toFixed(1)} • p95 ${p.p95Ms.toFixed(1)} ms • ${p.hitches} travada${p.hitches===1?'':'s'} em 2 s\n`
+    +`Origem: servidor ${fmt(o.server)} • chegada ${fmt(o.arrival)}\n`
+    +(f?`Fluidez ${f.mode==='max'?'máxima':'equilibrada'}: +${(f.extraMs??0).toFixed(1)} ms de espera • ${f.dropped} descartado${f.dropped===1?'':'s'}\n`:'');};
   const smoothingText=()=>{
    const s=status.smoothing;if(!s)return '';
    const target=s.requestedMs?`alvo solicitado ${s.requestedMs} ms`:'automático';
@@ -183,7 +235,7 @@
    const pref=k=>{try{if(/^(stream|server|userAgent)\./.test(k))return typeof getGlobalPref==='function'?getGlobalPref(k):undefined;return typeof getStreamPref==='function'?getStreamPref(k):undefined;}catch{return undefined;}};
    const native={};for(const k of ['stream.video.resolution','stream.video.codecProfile','stream.video.maxBitrate','stream.video.preventResolutionDrops','server.region','server.bypassRestriction','userAgent.profile','video.player.type','video.processing','video.processing.mode','video.processing.sharpness','video.maxFps','video.player.powerPreference'])native[k]=pref(k)??null;
    const text=JSON.stringify({build:globalThis.BxBuild?.version,app:window.BxAndroid?.getAppInfo?.()??null,screen:`${screen.width}×${screen.height} @${window.devicePixelRatio}`,
-    status:{resolution:status.resolution,fps:status.fps&&Math.round(status.fps),gpuP95:status.gpuP95,adaptation:status.adaptation,smoothing:status.smoothing},latency:decoderText.trim()||null,pacing:pacingText().trim()||null,
+    status:{resolution:status.resolution,fps:status.fps&&Math.round(status.fps),gpuP95:status.gpuP95,adaptation:status.adaptation,smoothing:status.smoothing,fluidity:status.fluidity},latency:decoderText.trim()||null,pacing:pacingText().trim()||null,
     treatment:BxRestoration.normalize(settings),betterXcloud:native},null,1);
    copyBox.value=text;copyBox.style.display='block';copyBox.select();
    try{await navigator.clipboard.writeText(text);copy.textContent='Configuração copiada';}catch{copy.textContent='Copie o texto abaixo';}

@@ -147,3 +147,22 @@ test('smoothing sets the WebRTC video buffer floor and restores the default',()=
  assert.equal(a.applySmoothing(peer,33).applied,2);assert.equal(video.jitterBufferTarget,33);assert.equal(audio.jitterBufferTarget,null);assert.ok(Math.abs(legacy.playoutDelayHint-.033)<1e-9);
  a.applySmoothing(peer,0);assert.equal(video.jitterBufferTarget,null);assert.equal(legacy.playoutDelayHint,null);assert.equal(a.applySmoothing(null,33).state,'waiting');
 });
+
+test('pacer turns irregular arrival into a steady display cadence',()=>{
+ const a=api();let seed=7;const rnd=()=>(seed=(seed*1103515245+12345)%2147483648)/2147483648;
+ const frames=[];let server=0;for(let i=0;i<300;i++){server+=1000/30;frames.push({rtp:server,arrival:server+60+(rnd()<.15?rnd()*20:rnd()*10)});}
+ frames.sort((x,y)=>x.arrival-y.arrival);
+ const run=mode=>{const p=a.createPacer(mode),shown=[];let i=0;for(let t=0;t<12000;t+=1000/120){while(i<frames.length&&frames[i].arrival<=t){p.add({slot:'s',arrival:frames[i].arrival,rtp:frames[i].rtp});i++;}if(p.tick(t))shown.push(t);}return {stats:a.frameStats(shown.slice(30)),p};};
+ const direct=a.frameStats(frames.map(f=>Math.ceil(f.arrival/(1000/120))*(1000/120)).slice(30));
+ const balanced=run('balanced'),max=run('max');
+ assert.ok(balanced.stats.deviationMs<direct.deviationMs/2&&balanced.stats.hitches===0,'balanced '+JSON.stringify(balanced.stats));
+ assert.ok(max.stats.deviationMs<1&&max.stats.hitches===0,'max '+JSON.stringify(max.stats));
+ assert.ok(balanced.p.extraDelayMs<15&&max.p.extraDelayMs<25);
+ assert.equal(balanced.p.cadenceMs,1000/30);
+});
+test('pacer drops the oldest frames when the queue overflows and RTP clock unwraps 32-bit time',()=>{
+ const a=api(),p=a.createPacer('balanced');for(let i=0;i<6;i++)p.add({slot:'s'+i,arrival:i,rtp:null});assert.equal(p.queued,3);assert.equal(p.dropped,3);
+ const f=p.tick(1e6);assert.equal(f.slot,'s5');assert.equal(p.queued,0);
+ const clock=a.createRtpClock();assert.equal(clock(0xFFFFFF00),0);assert.ok(Math.abs(clock(0x00000200)-(0x300/90))<1e-9);assert.equal(clock(NaN),null);
+ assert.equal(a.defaults.fluidity,'off');assert.equal(a.normalize({fluidity:'max'}).fluidity,'max');assert.equal(a.normalize({fluidity:'x'}).fluidity,'off');
+});
