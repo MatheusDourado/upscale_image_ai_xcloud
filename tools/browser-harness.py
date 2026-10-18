@@ -180,6 +180,28 @@ probe=r'''
   check(!document.querySelector('.bxif-hud')&&BxImageFilter.hud.timers()===0&&BxImageFilter.settings.hud==='off','HUD off removes it and its timers');}
  // The panel runs only while visible and leaves nothing behind once Better xCloud removes it.
  {menu2.scrollIntoView();await sleep(600);check(BxImageFilter.panelOpen===true&&BxImageFilter.panel.timers()===1,'Visible panel refreshes on one timer and enables telemetry');
+  // A dialog hidden with display:none stops the refresh; showing it again resumes.
+  menu2.style.display='none';await sleep(700);check(BxImageFilter.panel.timers()===0&&BxImageFilter.panelOpen===false,'Hidden dialog stops the panel refresh');
+  menu2.style.display='';menu2.scrollIntoView();await sleep(700);check(BxImageFilter.panel.timers()===1,'Shown again, the panel refreshes');
+  // Warning actions: 'Usar Auto' updates the setting and its control at once (no stale value).
+  BxImageFilter.update({output:'1440'});await sleep(1700);
+  const useAuto=[...menu2.querySelectorAll('.bxif-warns button')].find(b=>b.textContent==='Usar Auto');
+  check(useAuto,'Actionable output warning is visible (actionable warnings are never hidden behind +N)');
+  useAuto.click();
+  check(BxImageFilter.settings.output==='auto'&&menu2.querySelector('input[data-bxif-key=output]').getAttribute('aria-valuetext')==='Auto','Usar Auto changes the setting and its control at once');
+  // 'Ir para Renderizador' reaches Better xCloud's controller-friendly select (hidden <select>, '>' button in nearby.focus).
+  {const row=document.createElement('div');row.prefKey='video.player.type';const wrap=document.createElement('div');wrap.className='bx-select';
+   const sel=document.createElement('select');sel.style.cssText='position:absolute;top:-9999px;left:-9999px;visibility:hidden';const next=document.createElement('button');next.textContent='>';
+   wrap.append(sel,next);wrap.nearby={focus:next};row.append(wrap);menu2.prepend(row);
+   await sleep(600);const go=[...menu2.querySelectorAll('.bxif-warns button')].find(b=>b.textContent==='Ir para Renderizador');
+   check(go,'Renderer warning offers its action');go.click();check(document.activeElement===next,'Ir para Renderizador focuses the controller-friendly selector');row.remove();}
+  // Documented null fields never print undefined/NaN.
+  {const net=BxImageFilter.status.net;BxImageFilter.status.net={codec:null,profile:null,fpsReceived:null,decoder:'unknown',implementation:null,decodeMs:null,bufferMs:null,rttMs:null,bitrateMbps:null,lossPct:null,qp:null,framesDropped:null,freezes:null,width:null,height:null};
+   const fl=BxImageFilter.status.fluidity;BxImageFilter.status.fluidity={mode:'balanced',extraMs:null,dropped:0};BxImageFilter.status.adaptive=null;
+   for(const s of menu2.querySelectorAll('.bxif-sec:not([data-open])>.bxif-sec-head'))s.click();
+   await sleep(1200);const text=menu2.querySelector('.bxif-panel').textContent;
+   check(!/undefined|NaN/.test(text)&&!/ · \? /.test(text),'Null telemetry fields render as dashes, never undefined/NaN/?');
+   BxImageFilter.status.net=net;BxImageFilter.status.fluidity=fl;}
   menu2.remove();await sleep(700);check(BxImageFilter.panel.timers()===0&&BxImageFilter.panelOpen===false,'Removed panel leaves no timers and closes telemetry');}
  // A GPU failure while Fluidez is on must also end its display loop, not only the engine.
  BxImageFilter.settings.fluidity='balanced';adapterInput.currentTime+=.033;player.updateFrame();

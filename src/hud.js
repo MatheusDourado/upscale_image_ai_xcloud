@@ -11,7 +11,7 @@
  position:fixed;z-index:1900;display:none;box-sizing:border-box;margin:0;pointer-events:none;user-select:none;-webkit-user-select:none;
  contain:layout paint style;will-change:transform;
  padding:calc(4px*var(--s)) calc(7px*var(--s));border-radius:calc(6px*var(--s));
- background:rgba(10,11,13,.68);border:1px solid rgba(255,255,255,.08);color:#f3f5f8;text-shadow:0 1px 1px rgba(0,0,0,.7);
+ background:rgba(10,11,13,.8);border:1px solid rgba(255,255,255,.08);color:#f3f5f8;text-shadow:0 1px 1px rgba(0,0,0,.7);
  font:400 calc(11.5px*var(--s))/1 Bahnschrift,"Roboto Condensed","sans-serif-condensed","Arial Narrow",sans-serif;font-stretch:87.5%;
  font-variant-numeric:tabular-nums lining-nums;letter-spacing:normal;text-align:left;text-transform:none;white-space:nowrap}
 .bxif-hud *{box-sizing:border-box}
@@ -19,6 +19,8 @@
 @media (min-height:1000px){.bxif-hud{--s:1.6}}
 @media (max-height:500px){.bxif-hud{--bxif-ixl:max(8px,env(safe-area-inset-left));--bxif-ixr:max(8px,env(safe-area-inset-right));--bxif-iyt:max(8px,env(safe-area-inset-top));--bxif-iyb:max(8px,env(safe-area-inset-bottom))}}
 .bxif-hud[data-show]{display:block;animation:bxif-hud-in .15s ease-out}
+/* Overall state on the frame, apart from the FPS mark. */
+.bxif-hud[data-overall=ok]{border-color:rgba(255,214,102,.55)}.bxif-hud[data-overall=bad]{border-color:rgba(255,123,134,.7)}
 .bxif-hud[data-calm]{opacity:.6;transition:opacity .3s}
 .bxif-hud[data-hiding]{opacity:0;transition:opacity .15s}
 @keyframes bxif-hud-in{from{opacity:0}}
@@ -33,16 +35,16 @@
 .bxif-h-dot[data-g=bad]{background:var(--hg-bad);width:calc(8px*var(--s));border-radius:0;clip-path:polygon(50% 0,100% 100%,0 100%)}
 .bxif-h-dot[data-g=info]{background:none;box-shadow:inset 0 0 0 calc(1.75px*var(--s)) var(--hg-info)}
 .bxif-h-dot[data-g=none]{background:none;box-shadow:inset 0 0 0 calc(1.25px*var(--s)) var(--hg-none)}
-.bxif-h-k{font-size:calc(8.5px*var(--s));font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--hl)}
+.bxif-h-k{font-size:calc(9.5px*var(--s));font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--hl)}
 .bxif-h-v{font-weight:600}
-.bxif-h-s{font-size:calc(9.5px*var(--s));font-weight:500;color:var(--hl)}
+.bxif-h-s{font-size:calc(10.5px*var(--s));font-weight:500;color:var(--hl)}
 .bxif-h-fps{font-size:calc(15px*var(--s));font-weight:700;min-width:3ch;text-align:right;letter-spacing:-.01em}
-.bxif-h-tag{font-size:calc(8.5px*var(--s));font-weight:700;letter-spacing:.06em;line-height:1;padding:calc(1.5px*var(--s)) calc(3px*var(--s)) calc(1px*var(--s));border:1px solid currentColor;border-radius:calc(3px*var(--s))}
+.bxif-h-tag{font-size:calc(9.5px*var(--s));font-weight:700;letter-spacing:.06em;line-height:1;padding:calc(1.5px*var(--s)) calc(3px*var(--s)) calc(1px*var(--s));border:1px solid currentColor;border-radius:calc(3px*var(--s))}
 .bxif-h-badge{flex:none;display:inline-block;min-width:calc(14px*var(--s));height:calc(14px*var(--s));padding:0 calc(3px*var(--s));border-radius:calc(4px*var(--s));
- font-size:calc(9px*var(--s));font-weight:800;line-height:calc(14px*var(--s));text-align:center;text-shadow:none;color:#101114!important;background:var(--hg-ok)}
+ font-size:calc(10px*var(--s));font-weight:800;line-height:calc(14px*var(--s));text-align:center;text-shadow:none;color:#101114!important;background:var(--hg-ok)}
 .bxif-h-badge[data-g=bad]{background:var(--hg-bad)}.bxif-h-badge[data-g=info]{background:var(--hg-info)}
 .bxif-h-spark{display:block;flex:none}
-.bxif-h-chip{display:inline-block;font-size:calc(9px*var(--s));font-weight:700;letter-spacing:.04em;line-height:1;padding:calc(2px*var(--s)) calc(4px*var(--s));border-radius:calc(3px*var(--s));background:rgba(255,123,134,.16);color:var(--hg-bad)}
+.bxif-h-chip{display:inline-block;font-size:calc(10px*var(--s));font-weight:700;letter-spacing:.04em;line-height:1;padding:calc(2px*var(--s)) calc(4px*var(--s));border-radius:calc(3px*var(--s));background:rgba(255,123,134,.16);color:var(--hg-bad)}
 /* card (compact) */
 .bxif-h-l1,.bxif-h-l2,.bxif-h-l3{display:flex;align-items:center;gap:calc(5px*var(--s))}
 .bxif-h-l1{height:calc(18px*var(--s))}
@@ -52,7 +54,8 @@
 .bxif-h-l2>.bxif-h-v{text-align:right;margin-right:calc(4px*var(--s))}.bxif-h-l2>.bxif-h-v:last-child{margin-right:0}
 .bxif-h-l3{height:calc(17px*var(--s));padding-top:calc(3px*var(--s));gap:calc(4px*var(--s))}
 /* lateral (compact inside the letterbox bar) */
-.bxif-hud[data-layout=lateral]{width:var(--bxif-w,68px);padding:calc(6px*var(--s)) calc(4px*var(--s));background:rgba(10,11,13,.5);text-align:center}
+.bxif-hud[data-layout=lateral]{width:var(--bxif-w,68px);padding:calc(6px*var(--s)) calc(4px*var(--s));background:rgba(10,11,13,.55);text-align:center}
+.bxif-h-col .bxif-h-s{font-size:calc(9.5px*var(--s))}
 .bxif-hud[data-layout=lateral][data-pos$=left]{left:var(--bxif-lx,4px)}
 .bxif-hud[data-layout=lateral][data-pos$=right]{right:var(--bxif-lx,4px)}
 .bxif-hud[data-layout=lateral][data-pos^=top]{top:max(8px,env(safe-area-inset-top),var(--bxif-top,0px))}
@@ -63,20 +66,20 @@
 .bxif-h-col>.bxif-h-spark{height:calc(12px*var(--s));margin:calc(3px*var(--s)) 0}
 .bxif-h-col>.bxif-h-cap{margin-top:calc(3px*var(--s))}
 /* full */
-.bxif-hud[data-layout=full]{width:calc(212px*var(--s));padding:calc(6px*var(--s)) calc(8px*var(--s)) calc(4px*var(--s))}
+.bxif-hud[data-layout=full]{width:calc(236px*var(--s));padding:calc(6px*var(--s)) calc(8px*var(--s)) calc(4px*var(--s))}
 .bxif-h-head{display:flex;align-items:center;gap:calc(5px*var(--s));height:calc(18px*var(--s))}
-.bxif-h-word{flex:1;min-width:0;overflow:hidden;font-size:calc(8.5px*var(--s));font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--hg-good)}
+.bxif-h-word{flex:1;min-width:0;overflow:hidden;font-size:calc(9.5px*var(--s));font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--hg-good)}
 .bxif-h-big{font-size:calc(16px*var(--s));font-weight:700;min-width:3ch;text-align:right}
-.bxif-hud[data-layout=full] .bxif-h-spark{width:calc(196px*var(--s));height:calc(24px*var(--s));margin:calc(3px*var(--s)) 0 calc(4px*var(--s))}
+.bxif-hud[data-layout=full] .bxif-h-spark{width:calc(220px*var(--s));height:calc(24px*var(--s));margin:calc(3px*var(--s)) 0 calc(4px*var(--s))}
 .bxif-h-grp{border-top:1px solid rgba(255,255,255,.10);padding:calc(2px*var(--s)) 0}
 .bxif-h-row{display:flex;align-items:center;height:calc(14px*var(--s));min-width:0}
-.bxif-h-row>.bxif-h-k{flex:none;width:calc(50px*var(--s))}
+.bxif-h-row>.bxif-h-k{flex:none;width:calc(62px*var(--s))}
 .bxif-h-val{display:block;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis}
 .bxif-h-bar{flex:none;display:flex;gap:1px;width:calc(72px*var(--s));height:calc(5px*var(--s));margin-left:auto;border-radius:1px;overflow:hidden;background:rgba(255,255,255,.08)}
 .bxif-h-bar>i{flex:0 1 0;min-width:0}
 .bxif-h-bar>i:nth-child(1){background:#d7dbe2}.bxif-h-bar>i:nth-child(2){background:#a9afba}.bxif-h-bar>i:nth-child(3){background:#7c8391}.bxif-h-bar>i:nth-child(4){background:#565c68}
 .bxif-h-bar>i:nth-child(5){background:repeating-linear-gradient(45deg,#a9afba 0 2px,transparent 2px 4px)}
-.bxif-h-leg{display:block;height:calc(13px*var(--s));line-height:calc(13px*var(--s));padding-left:calc(50px*var(--s));font-size:calc(10px*var(--s));overflow:hidden}
+.bxif-h-leg{display:block;height:calc(13px*var(--s));line-height:calc(13px*var(--s));padding-left:calc(62px*var(--s));font-size:calc(10px*var(--s));overflow:hidden}
 .bxif-h-warn{display:flex;align-items:center;gap:calc(5px*var(--s));height:calc(17px*var(--s));min-width:0}
 .bxif-h-warn>.bxif-h-val{font-weight:500;font-size:calc(10.5px*var(--s))}
 @media (prefers-reduced-motion:reduce){.bxif-hud,.bxif-hud *{transition:none!important;animation:none!important}}
@@ -116,7 +119,7 @@
   el.append(E('div', 'bxif-h-l1', d.e, fps.e, lab('FPS'), tag.e, cv, badge.e), E('div', 'bxif-h-l2', lab('RIT'), rit.e, lab('TRAV'), trav.e, lab('LAT'), lat.e), l3);
   return {kind: 'card', dot: d, fps, tag, badge, cv, rit, trav, lat, chips, chipEls: chips.map(c => c.e), l3, spark: {count: 60, w: 56, h: 12}};
  }
- function buildLateral(w) {
+ function buildLateral(w, full) {
   const d = dot(), fps = field('bxif-h-fps'), tag = field('bxif-h-tag', ''), badge = field('bxif-h-badge', ''), cv = E('canvas', 'bxif-h-spark');
   const rit = field(), trav = field(), lat = field(), chips = [field('bxif-h-chip', ''), field('bxif-h-chip', '')];
   const line = (...kids) => E('div', null, ...kids), cap = text => { const e = line(lab(text)); e.className = 'bxif-h-cap'; return e; };
@@ -124,8 +127,17 @@
   for (const e of [...chipRows, badgeRow, tagRow]) off(e, true);
   const sw = Math.max(20, w - 12);
   cv.style.width = sw + 'px';
-  el.append(E('div', 'bxif-h-col', line(d.e, fps.e), line(lab('FPS')), cv, cap('RIT'), line(rit.e), cap('TRAV'), line(trav.e), cap('LAT'), line(lat.e), ...chipRows, badgeRow, tagRow));
-  return {kind: 'lateral', dot: d, fps, tag, badge, cv, rit, trav, lat, chips, chipEls: chipRows, badgeEl: badgeRow, tagEl: tagRow, spark: {count: 60, w: sw / s, h: 12}};
+  // Completo on the phone: the same column with every indicator, still inside the black bar.
+  let extra = null;
+  const rows = [cap('RIT'), line(rit.e)];
+  if (full) {
+   extra = {p95: field(), desc: field(), wait: field(), br: field(), qp: field(), loss: field()};
+   extra.descRows = [cap('DESC/MIN'), line(extra.desc.e)]; extra.waitRows = [cap('ESPERA'), line(extra.wait.e)];
+   rows.push(line(sub('p95 '), extra.p95.e), cap('TRAV'), line(trav.e), ...extra.descRows, ...extra.waitRows, cap('LAT'), line(lat.e),
+    cap('MB/S'), line(extra.br.e), cap('QP'), line(extra.qp.e), cap('PERDA'), line(extra.loss.e));
+  } else rows.push(cap('TRAV'), line(trav.e), cap('LAT'), line(lat.e));
+  el.append(E('div', 'bxif-h-col', line(d.e, fps.e), line(lab('FPS')), cv, ...rows, ...chipRows, badgeRow, tagRow));
+  return {kind: 'lateral', dot: d, fps, tag, badge, cv, rit, trav, lat, chips, chipEls: chipRows, badgeEl: badgeRow, tagEl: tagRow, extra, spark: {count: 60, w: sw / s, h: full ? 16 : 12}};
  }
  function buildFull() {
   const d = dot(), word = field('bxif-h-word', ''), fps = field('bxif-h-big'), cv = E('canvas', 'bxif-h-spark');
@@ -140,15 +152,17 @@
   const row = (k, ...kids) => E('div', 'bxif-h-row', lab(k), E('span', 'bxif-h-val', ...kids));
   const warn = E('div', 'bxif-h-grp', E('div', 'bxif-h-warn', wbadge.e, wtext.e));
   off(warn, true);
-  const legEl = E('div', 'bxif-h-leg');
+  const legEl = E('div', 'bxif-h-leg'), videoRow = row('Vídeo', vin.e, sub('→'), vout.e, sub(' · '), codec.e, sub(' · '), dec.e);
+  // Without a black bar on the phone the card stays short: no latency legend or video row.
+  if (s === 1) { off(legEl, true); off(videoRow, true); }
   for (const x of leg) legEl.append(x.k, x.v.e);
   el.append(E('div', 'bxif-h-head', d.e, word.e, fps.e, lab('FPS')), cv,
    E('div', 'bxif-h-grp', row('Ritmo', dev.e, devUnit, p95.e), row('Quadros', sub('trav '), hit.e, ...missParts, ...descParts), row('Fluidez', wait.e, capSep, cap.e)),
    E('div', 'bxif-h-grp', E('div', 'bxif-h-row', lab('Latência'), total.e, bar), legEl),
-   E('div', 'bxif-h-grp', row('Vídeo', vin.e, sub('→'), vout.e, sub(' · '), codec.e, sub(' · '), dec.e), row('Rede', br.e, sub(' Mb/s · QP '), qp.e, sub(' · '), loss.e)),
+   E('div', 'bxif-h-grp', videoRow, row('Rede', br.e, sub(' Mb/s · QP '), qp.e, sub(' · perda '), loss.e)),
    warn);
   return {kind: 'full', dot: d, word, fps, cv, dev, p95, hit, miss, missParts, desc, descParts, wait, capSep, cap, total, bar, leg, vin, vout, codec, dec, br, qp, loss, warn, wbadge, wtext,
-   spark: {count: 240, w: 196, h: 24}};
+   spark: {count: 240, w: 220, h: 24}};
  }
 
  /* ------------------------------ layout and placement ------------------------------ */
@@ -163,7 +177,7 @@
  }
  // Compact on the phone moves into the black bar beside a letterboxed video (16:9 or the chosen ratio).
  function lateral() {
-  if (settings.hud !== 'compact' || s !== 1) return null;
+  if (settings.hud === 'off' || s !== 1) return null;
   const pref = api.nativePref('video.ratio');
   if (pref === 'fill') return null;
   const m = /^(\d+(?:\.\d+)?):(\d+(?:\.\d+)?)$/.exec(pref || ''), ratio = m ? m[1] / m[2] : 16 / 9;
@@ -178,12 +192,12 @@
  function relayout() {
   layoutDirty = false;
   s = scaleNow();
-  const lat = lateral(), want = settings.hud === 'full' ? 'full' : lat ? 'lateral:' + lat.w : 'card';
+  const lat = lateral(), want = lat ? 'lateral:' + lat.w + ':' + settings.hud : settings.hud === 'full' ? 'full' : 'card';
   attr(el, 'data-mode', settings.hud); attr(el, 'data-pos', settings.hudPosition);
   if (lat) { prop(el, '--bxif-w', lat.w + 'px'); prop(el, '--bxif-lx', lat.x + 'px'); }
   if (want === built) { sizeSpark(); return; }
   built = want; el.textContent = ''; G.reset();
-  f = want === 'full' ? buildFull() : lat ? buildLateral(lat.w) : buildCard();
+  f = lat ? buildLateral(lat.w, settings.hud === 'full') : want === 'full' ? buildFull() : buildCard();
   attr(el, 'data-layout', f.kind);
   sizeSpark();
  }
@@ -208,7 +222,8 @@
   const x = snapshot(), on = x.on, p = x.p, w = stateWord(), net = x.net;
   const overall = G('overall', x.overall), fpsG = G('fps', x.gFpsAny), devG = on && p ? G('dev', x.gDev) : 'none', hitG = on && p ? G('hit', x.gHit) : 'none';
   const totalG = G('total', x.gTotal), missG = G('miss', x.gMiss), warnG = x.warnCount ? G('warn', x.gWarn) : 'none';
-  f.dot.set(overall);
+  f.dot.set(f.kind === 'full' ? w.grade : fpsG);
+  attr(el, 'data-overall', RANK(overall) > 1 ? overall : null);
   put(f.fps, fmtInt(x.fpsAny), fpsG);
   drawSparkline(f.cv, status.intervals, {count: f.spark.count, T: x.T, dim: !on, scale: s, ok: '#ffd666', bad: '#ff7b86'});
   const rate = drops.push(x.fl ? x.fl.dropped : null);
@@ -221,7 +236,16 @@
    put(f.badge, x.warnCount ? '!' + x.warnCount : '', warnG); off(f.badgeEl || f.badge.e, !x.warnCount);
    // Line 3: at most two alerts, bad ones only, in priority order. An alert needs the bad grade on two
    // ticks to appear and leaves as soon as the value is back to good (never "PERDA 0,0%" in red).
-   const alerts = [], add = (key, raw, text) => { if (G(key, raw) === 'bad' && raw !== 'good' && raw !== 'none' && alerts.length < CHIPS) alerts.push(text); };
+   const alerts = [], add = (key, raw, text) => { if (!f.extra && G(key, raw) === 'bad' && raw !== 'good' && raw !== 'none' && alerts.length < CHIPS) alerts.push(text); };
+   if (f.extra) {
+    const e = f.extra, flOn = settings.fluidity !== 'off';
+    put(e.p95, on && p ? fmtMs(p.p95Ms) : '—', on && p ? G('p95', x.gP95) : 'none');
+    for (const r of [...e.descRows, ...e.waitRows]) off(r, !flOn);
+    if (flOn) { put(e.desc, num(rate) ? fmtInt(rate) : '—', G('drops', grade('drops', rate))); put(e.wait, x.fl && num(x.fl.extraMs) ? '+' + fmtMs(x.fl.extraMs) : '—', G('wait', x.gWait)); }
+    put(e.br, num(net?.bitrateMbps) ? fmt(net.bitrateMbps, 1) : '—', G('bitrate', x.gBitrate));
+    put(e.qp, fmtInt(x.qp), G('qp', x.gQp));
+    put(e.loss, num(net?.lossPct) ? fmt(net.lossPct, 1) + '%' : '—', G('loss', x.gLoss));
+   }
    add('miss', x.gMiss, 'PUL ' + x.missed);
    add('loss', x.gLoss, 'PERDA ' + fmt(net?.lossPct, 1) + '%');
    add('qp', x.gQp, 'QP ' + fmtInt(x.qp));
@@ -258,7 +282,7 @@
    put(f.vin, inH ? inH + 'p' : '—', net?.height ? G('height', x.gHeight) : 'none');
    put(f.vout, r ? r[4] + 'p' : '—', r ? null : 'none');
    put(f.codec, net?.codec ? net.codec.split(' ')[0] : '—', null);
-   put(f.dec, net ? DEC[net.decoder] || '?' : '—', G('decoder', x.gDecoder));
+   put(f.dec, net ? DEC[net.decoder] || '—' : '—', G('decoder', x.gDecoder));
    put(f.br, num(net?.bitrateMbps) ? fmt(net.bitrateMbps, 1) : '—', G('bitrate', x.gBitrate));
    put(f.qp, fmtInt(x.qp), G('qp', x.gQp));
    put(f.loss, num(net?.lossPct) ? fmt(net.lossPct, 1) + '%' : '—', G('loss', x.gLoss));

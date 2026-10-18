@@ -24,7 +24,7 @@ Objeto vivo, normalizado por `BxRestoration.normalize` (`src/restoration-engine.
 
 ## Ações
 
-- `api.update(patch)`, `api.reset()` (restaura o tratamento; mantém o HUD), `api.applyPreset(key)`, `api.preset()` → chave do perfil atual ou `custom`.
+- `api.update(patch)` (ignora valores iguais; grava no armazenamento após 400 ms sem mudanças), `api.reset()` (restaura o tratamento; mantém o HUD), `api.applyPreset(key)`, `api.preset()` → chave do perfil atual ou `custom`.
 - `api.presets`: `{natural, console, sharp, clean, light}`, cada um com `{label, description, values}`.
 - `api.diagnostic` (booleano, não salvo): colore a imagem para confirmar que o tratamento roda.
 - `api.startMeasurement()` → `Promise<boolean>`; `api.measuring`; `api.exportMeasurement()` → baixa o JSON e devolve o relatório.
@@ -42,6 +42,7 @@ Objeto vivo, normalizado por `BxRestoration.normalize` (`src/restoration-engine.
 - `gpuP95` (ms ou `null`), `measurement` (`gpu` ou `cadence`), `adaptation` (motivo da última redução automática).
 - `pacing` — ritmo na tela (2 s): `{meanMs, deviationMs, p95Ms, hitches, frames}`.
 - `intervals` — intervalos entre quadros exibidos (ms), últimos 240, para gráficos.
+- `intervalsTotal` — contador monotônico de intervalos registrados (muda a cada quadro exibido; serve de assinatura para redesenhar gráficos).
 - `origin` — `{server, arrival}` (como `pacing`), `presented`, `missed` (quadros pulados antes do tratamento em 2 s).
 - `fluidity` — `{mode, extraMs, dropped}` ou `null`.
 - `capture` — `{active, frames, reason}`: captura direta em uso, quadros recebidos dela, motivo de fallback.

@@ -263,7 +263,7 @@ function patchSdpBitrate(sdp, video, audio) {let lines = sdp.split(`\r
 class WebGL2Player extends BaseCanvasPlayer {gl = null;resources = [];program = null;constructor($video) {super("webgl2", $video, "WebGL2Player");}updateCanvas() {console.log("updateCanvas", this.options);let gl = this.gl, program = this.program, filterId = this.toFilterId(this.options.processing);gl.uniform2f(gl.getUniformLocation(program, "iResolution"), this.$canvas.width, this.$canvas.height), gl.uniform1i(gl.getUniformLocation(program, "filterId"), filterId), gl.uniform1i(gl.getUniformLocation(program, "qualityMode"), this.options.processingMode === "quality" ? 1 : 0), gl.uniform1f(gl.getUniformLocation(program, "sharpenFactor"), this.options.sharpness / (this.options.processingMode === "quality" ? 1 : 1.2)), gl.uniform1f(gl.getUniformLocation(program, "brightness"), this.options.brightness / 100), gl.uniform1f(gl.getUniformLocation(program, "contrast"), this.options.contrast / 100), gl.uniform1f(gl.getUniformLocation(program, "saturation"), this.options.saturation / 100);}updateFrame() {let gl = this.gl;gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, gl.RGB, gl.UNSIGNED_BYTE, this.$video), gl.drawArrays(gl.TRIANGLES, 0, 3);}async setupShaders() {let gl = this.$canvas.getContext("webgl2", {isBx: !0,antialias: !0,alpha: !1,depth: !1,preserveDrawingBuffer: !1,stencil: !1,powerPreference: getStreamPref("video.player.powerPreference")});this.gl = gl, gl.viewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferWidth);let vShader = gl.createShader(gl.VERTEX_SHADER);gl.shaderSource(vShader, `#version 300 es
 in vec4 position;void main() {gl_Position = position;}`), gl.compileShader(vShader);let fShader = gl.createShader(gl.FRAGMENT_SHADER);gl.shaderSource(fShader, `#version 300 es
 precision mediump float;uniform sampler2D data;uniform vec2 iResolution;const int FILTER_UNSHARP_MASKING = 1;const int FILTER_CAS = 2;const float CAS_CONTRAST_PEAK = 0.8 * -3.0 + 8.0;const vec3 LUMINOSITY_FACTOR = vec3(0.299, 0.587, 0.114);uniform int filterId;uniform bool qualityMode;uniform float sharpenFactor;uniform float brightness;uniform float contrast;uniform float saturation;out vec4 fragColor;vec3 clarityBoost(sampler2D tex, vec2 coord, vec3 e) {vec2 texelSize = 1.0 / iResolution.xy;vec3 b = texture(tex, coord + texelSize * vec2(0, 1)).rgb;vec3 d = texture(tex, coord + texelSize * vec2(-1, 0)).rgb;vec3 f = texture(tex, coord + texelSize * vec2(1, 0)).rgb;vec3 h = texture(tex, coord + texelSize * vec2(0, -1)).rgb;vec3 a;vec3 c;vec3 g;vec3 i;if (filterId == FILTER_UNSHARP_MASKING || qualityMode) {a = texture(tex, coord + texelSize * vec2(-1, 1)).rgb;c = texture(tex, coord + texelSize * vec2(1, 1)).rgb;g = texture(tex, coord + texelSize * vec2(-1, -1)).rgb;i = texture(tex, coord + texelSize * vec2(1, -1)).rgb;}if (filterId == FILTER_UNSHARP_MASKING) {vec3 gaussianBlur = (a + c + g + i) * 1.0 + (b + d + f + h) * 2.0 + e * 4.0;gaussianBlur /= 16.0;return e + (e - gaussianBlur) * sharpenFactor / 3.0;}vec3 minRgb = min(min(min(d, e), min(f, b)), h);vec3 maxRgb = max(max(max(d, e), max(f, b)), h);if (qualityMode) {minRgb += min(min(a, c), min(g, i));maxRgb += max(max(a, c), max(g, i));}vec3 reciprocalMaxRgb = 1.0 / maxRgb;vec3 amplifyRgb = clamp(min(minRgb, 2.0 - maxRgb) * reciprocalMaxRgb, 0.0, 1.0);amplifyRgb = inversesqrt(amplifyRgb);vec3 weightRgb = -(1.0 / (amplifyRgb * CAS_CONTRAST_PEAK));vec3 reciprocalWeightRgb = 1.0 / (4.0 * weightRgb + 1.0);vec3 window = b + d + f + h;vec3 outColor = clamp((window * weightRgb + e) * reciprocalWeightRgb, 0.0, 1.0);return mix(e, outColor, sharpenFactor / 2.0);}void main() {vec2 uv = gl_FragCoord.xy / iResolution.xy;vec3 color = texture(data, uv).rgb;if (sharpenFactor > 0.0) {color = clarityBoost(data, uv, color);}color = mix(vec3(dot(color, LUMINOSITY_FACTOR)), color, saturation);color = contrast * (color - 0.5) + 0.5;color = brightness * color;fragColor = vec4(color, 1.0);}`), gl.compileShader(fShader);let program = gl.createProgram();if (this.program = program, gl.attachShader(program, vShader), gl.attachShader(program, fShader), gl.linkProgram(program), gl.useProgram(program), !gl.getProgramParameter(program, gl.LINK_STATUS)) console.error(`Link failed: ${gl.getProgramInfoLog(program)}`), console.error(`vs info-log: ${gl.getShaderInfoLog(vShader)}`), console.error(`fs info-log: ${gl.getShaderInfoLog(fShader)}`);this.updateCanvas();let buffer = gl.createBuffer();this.resources.push(buffer), gl.bindBuffer(gl.ARRAY_BUFFER, buffer), gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1,3,-1,-1,3]), gl.STATIC_DRAW), gl.enableVertexAttribArray(0), gl.vertexAttribPointer(0, 2, gl.FLOAT, !1, 0, 0);let texture = gl.createTexture();this.resources.push(texture), gl.bindTexture(gl.TEXTURE_2D, texture), gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, !0), gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE), gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE), gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR), gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR), gl.uniform1i(gl.getUniformLocation(program, "data"), 0), gl.activeTexture(gl.TEXTURE0);}destroy() {super.destroy();let gl = this.gl;if (!gl) return;gl.getExtension("WEBGL_lose_context")?.loseContext(), gl.useProgram(null);for (let resource of this.resources)if (resource instanceof WebGLProgram) gl.deleteProgram(resource);else if (resource instanceof WebGLShader) gl.deleteShader(resource);else if (resource instanceof WebGLTexture) gl.deleteTexture(resource);else if (resource instanceof WebGLBuffer) gl.deleteBuffer(resource);this.gl = null;}refreshPlayer() {this.updateCanvas();}}
-globalThis.BxBuild={"version": "6.7.12-imagefilter.9.6.1", "sourceSha256": "d38df2e26ad0b7f922e805fca1e6fbe2457c6d3e3553e34e758f9515e4ba4ad4"};
+globalThis.BxBuild={"version": "6.7.12-imagefilter.9.6.1", "sourceSha256": "6cfe056ac45e60adfc5ada93763f7d1e8163ae6a3ffc7d783d1d1f44a300cfa8"};
 globalThis.BxShaders={"antialias": "#version 300 es\nprecision highp float;\nprecision highp sampler2D;\nuniform sampler2D source;\nuniform float amount;\nout vec4 fragColor;\nfloat luminance(vec3 c){return dot(c,vec3(.2126,.7152,.0722));}\nvoid main(){\n vec2 stepSize=1./vec2(textureSize(source,0)),uv=gl_FragCoord.xy*stepSize;\n vec3 center=texture(source,uv).rgb;\n float nw=luminance(texture(source,uv+vec2(-1,1)*stepSize).rgb);\n float ne=luminance(texture(source,uv+vec2(1,1)*stepSize).rgb);\n float sw=luminance(texture(source,uv+vec2(-1,-1)*stepSize).rgb);\n float se=luminance(texture(source,uv+vec2(1,-1)*stepSize).rgb);\n float mid=luminance(center),lo=min(mid,min(min(nw,ne),min(sw,se))),hi=max(mid,max(max(nw,ne),max(sw,se)));\n float contrast=hi-lo;\n // Directional post-process AA: only high-contrast slanted edges are blended.\n // Flat regions and axis-aligned edges retain their original samples.\n vec2 direction=vec2(-(nw+ne-sw-se),nw+sw-ne-se);\n float major=max(abs(direction.x),abs(direction.y));\n float diagonal=min(abs(direction.x),abs(direction.y))/max(major,.00001);\n float weight=amount*smoothstep(.04,.15,contrast)*smoothstep(.05,.35,diagonal);\n if(weight<=0.){fragColor=vec4(center,1);return;}\n direction=direction/max(major,.00001)*stepSize;\n vec3 smoothColor=(texture(source,uv-direction*.5).rgb+texture(source,uv+direction*.5).rgb)*.5;\n // Clamp to the observed neighborhood to prevent new ringing.\n float smoothLum=luminance(smoothColor);\n if(smoothLum<lo||smoothLum>hi)smoothColor=center;\n fragColor=vec4(mix(center,smoothColor,weight),1);\n}\n", "copy": "#version 300 es\nprecision highp float;\nprecision highp sampler2D;\nuniform sampler2D source;\nuniform vec2 outputSize;\nout vec4 fragColor;\nvoid main(){fragColor=vec4(texture(source,gl_FragCoord.xy/outputSize).rgb,1);}\n", "cut": "#version 300 es\nprecision highp float;\nprecision highp sampler2D;\nuniform sampler2D source, previous;\nout vec4 fragColor;\nvoid main(){float difference=0.;for(int y=0;y<16;y++)for(int x=0;x<16;x++){\n vec2 uv=(vec2(x,y)+.5)/16.;vec3 d=abs(texture(source,uv).rgb-texture(previous,uv).rgb);\n difference+=dot(d,vec3(.2126,.7152,.0722))/256.;\n}fragColor=vec4(difference,0,0,1);}\n", "easu": "#version 300 es\nprecision highp float;\nprecision highp sampler2D;\nuniform sampler2D source;uniform vec2 outputSize;out vec4 fragColor;\nfloat safeRcp(float x){return 1./max(x,1e-8);}float safeRsq(float x){return inversesqrt(max(x,1e-8));}\nfloat saturate(float x){return clamp(x,0.,1.);}vec3 min3(vec3 a,vec3 b,vec3 c){return min(a,min(b,c));}vec3 max3(vec3 a,vec3 b,vec3 c){return max(a,max(b,c));}\n// WebGL2 has no textureGather. Fetch each texel once (RGB) and split channels in gather order.\nvoid gatherRGB(vec2 uv,out vec4 r,out vec4 g,out vec4 b){ivec2 size=textureSize(source,0);ivec2 p=ivec2(floor(uv*vec2(size)-.5));\n vec3 t0=texelFetch(source,clamp(p+ivec2(0,1),ivec2(0),size-1),0).rgb,t1=texelFetch(source,clamp(p+ivec2(1,1),ivec2(0),size-1),0).rgb;\n vec3 t2=texelFetch(source,clamp(p+ivec2(1,0),ivec2(0),size-1),0).rgb,t3=texelFetch(source,clamp(p,ivec2(0),size-1),0).rgb;\n r=vec4(t0.r,t1.r,t2.r,t3.r);g=vec4(t0.g,t1.g,t2.g,t3.g);b=vec4(t0.b,t1.b,t2.b,t3.b);}\n\n// FidelityFX Super Resolution Sample\n//\n// Copyright (c) 2021 Advanced Micro Devices, Inc. All rights reserved.\n// Permission is hereby granted, free of charge, to any person obtaining a copy\n// of this software and associated documentation files(the \"Software\"), to deal\n// in the Software without restriction, including without limitation the rights\n// to use, copy, modify, merge, publish, distribute, sublicense, and / or sell\n// copies of the Software, and to permit persons to whom the Software is\n// furnished to do so, subject to the following conditions :\n// The above copyright notice and this permission notice shall be included in\n// all copies or substantial portions of the Software.\n// THE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\n// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\n// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.IN NO EVENT SHALL THE\n// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\n// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\n// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN\n// THE SOFTWARE.\n void FsrEasuTapF(\n inout vec3 aC, // Accumulated color, with negative lobe.\n inout float aW, // Accumulated weight.\n vec2 off, // Pixel offset from resolve position to tap.\n vec2 dir, // Gradient direction.\n vec2 len, // Length.\n float lob, // Negative lobe strength.\n float clp, // Clipping point.\n vec3 c){ // Tap color.\n  // Rotate offset by direction.\n  vec2 v;\n  v.x=(off.x*( dir.x))+(off.y*dir.y);\n  v.y=(off.x*(-dir.y))+(off.y*dir.x);\n  // Anisotropy.\n  v*=len;\n  // Compute distance^2.\n  float d2=v.x*v.x+v.y*v.y;\n  // Limit to the window as at corner, 2 taps can easily be outside.\n  d2=min(d2,clp);\n  // Approximation of lancos2 without sin() or rcp(), or sqrt() to get x.\n  //  (25/16 * (2/5 * x^2 - 1)^2 - (25/16 - 1)) * (1/4 * x^2 - 1)^2\n  //  |_______________________________________|   |_______________|\n  //                   base                             window\n  // The general form of the 'base' is,\n  //  (a*(b*x^2-1)^2-(a-1))\n  // Where 'a=1/(2*b-b^2)' and 'b' moves around the negative lobe.\n  float wB=float(2.0/5.0)*d2+float(-1.0);\n  float wA=lob*d2+float(-1.0);\n  wB*=wB;\n  wA*=wA;\n  wB=float(25.0/16.0)*wB+float(-(25.0/16.0-1.0));\n  float w=wB*wA;\n  // Do weighted average.\n  aC+=c*w;aW+=w;}\n//------------------------------------------------------------------------------------------------------------------------------\n // Accumulate direction and length.\n void FsrEasuSetF(\n inout vec2 dir,\n inout float len,\n vec2 pp,\n bool biS,bool biT,bool biU,bool biV,\n float lA,float lB,float lC,float lD,float lE){\n  // Compute bilinear weight, branches factor out as predicates are compiler time immediates.\n  //  s t\n  //  u v\n  float w = float(0.0);\n  if(biS)w=(float(1.0)-pp.x)*(float(1.0)-pp.y);\n  if(biT)w=           pp.x *(float(1.0)-pp.y);\n  if(biU)w=(float(1.0)-pp.x)*           pp.y ;\n  if(biV)w=           pp.x *           pp.y ;\n  // Direction is the '+' diff.\n  //    a\n  //  b c d\n  //    e\n  // Then takes magnitude from abs average of both sides of 'c'.\n  // Length converts gradient reversal to 0, smoothly to non-reversal at 1, shaped, then adding horz and vert terms.\n  float dc=lD-lC;\n  float cb=lC-lB;\n  float lenX=max(abs(dc),abs(cb));\n  lenX=safeRcp(lenX);\n  float dirX=lD-lB;\n  dir.x+=dirX*w;\n  lenX=saturate(abs(dirX)*lenX);\n  lenX*=lenX;\n  len+=lenX*w;\n  // Repeat for the y axis.\n  float ec=lE-lC;\n  float ca=lC-lA;\n  float lenY=max(abs(ec),abs(ca));\n  lenY=safeRcp(lenY);\n  float dirY=lE-lA;\n  dir.y+=dirY*w;\n  lenY=saturate(abs(dirY)*lenY);\n  lenY*=lenY;\n  len+=lenY*w;}\n//------------------------------------------------------------------------------------------------------------------------------\n void FsrEasuF(\n out vec3 pix,\n vec2 ip, // Integer pixel position in output.\n vec4 con0, // Constants generated by FsrEasuCon().\n vec4 con1,\n vec4 con2,\n vec4 con3){\n//------------------------------------------------------------------------------------------------------------------------------\n  // Get position of 'f'.\n  vec2 pp=vec2(ip)*vec2(con0.xy)+vec2(con0.zw);\n  vec2 fp=floor(pp);\n  pp-=fp;\n//------------------------------------------------------------------------------------------------------------------------------\n  // 12-tap kernel.\n  //    b c\n  //  e f g h\n  //  i j k l\n  //    n o\n  // Gather 4 ordering.\n  //  a b\n  //  r g\n  // For packed FP16, need either {rg} or {ab} so using the following setup for gather in all versions,\n  //    a b    <- unused (z)\n  //    r g\n  //  a b a b\n  //  r g r g\n  //    a b\n  //    r g    <- unused (z)\n  // Allowing dead-code removal to remove the 'z's.\n  vec2 p0=fp*vec2(con1.xy)+vec2(con1.zw);\n  // These are from p0 to avoid pulling two constants on pre-Navi hardware.\n  vec2 p1=p0+vec2(con2.xy);\n  vec2 p2=p0+vec2(con2.zw);\n  vec2 p3=p0+vec2(con3.xy);\n  vec4 bczzR,bczzG,bczzB,ijfeR,ijfeG,ijfeB,klhgR,klhgG,klhgB,zzonR,zzonG,zzonB;\n  gatherRGB(p0,bczzR,bczzG,bczzB);\n  gatherRGB(p1,ijfeR,ijfeG,ijfeB);\n  gatherRGB(p2,klhgR,klhgG,klhgB);\n  gatherRGB(p3,zzonR,zzonG,zzonB);\n//------------------------------------------------------------------------------------------------------------------------------\n  // Simplest multi-channel approximate luma possible (luma times 2, in 2 FMA/MAD).\n  vec4 bczzL=bczzB*vec4(0.5)+(bczzR*vec4(0.5)+bczzG);\n  vec4 ijfeL=ijfeB*vec4(0.5)+(ijfeR*vec4(0.5)+ijfeG);\n  vec4 klhgL=klhgB*vec4(0.5)+(klhgR*vec4(0.5)+klhgG);\n  vec4 zzonL=zzonB*vec4(0.5)+(zzonR*vec4(0.5)+zzonG);\n  // Rename.\n  float bL=bczzL.x;\n  float cL=bczzL.y;\n  float iL=ijfeL.x;\n  float jL=ijfeL.y;\n  float fL=ijfeL.z;\n  float eL=ijfeL.w;\n  float kL=klhgL.x;\n  float lL=klhgL.y;\n  float hL=klhgL.z;\n  float gL=klhgL.w;\n  float oL=zzonL.z;\n  float nL=zzonL.w;\n  // Accumulate for bilinear interpolation.\n  vec2 dir=vec2(0.0);\n  float len=float(0.0);\n  FsrEasuSetF(dir,len,pp,true, false,false,false,bL,eL,fL,gL,jL);\n  FsrEasuSetF(dir,len,pp,false,true ,false,false,cL,fL,gL,hL,kL);\n  FsrEasuSetF(dir,len,pp,false,false,true ,false,fL,iL,jL,kL,nL);\n  FsrEasuSetF(dir,len,pp,false,false,false,true ,gL,jL,kL,lL,oL);\n//------------------------------------------------------------------------------------------------------------------------------\n  // Normalize with approximation, and cleanup close to zero.\n  vec2 dir2=dir*dir;\n  float dirR=dir2.x+dir2.y;\n  bool zro=dirR<float(1.0/32768.0);\n  dirR=safeRsq(dirR);\n  dirR=zro?float(1.0):dirR;\n  dir.x=zro?float(1.0):dir.x;\n  dir*=vec2(dirR);\n  // Transform from {0 to 2} to {0 to 1} range, and shape with square.\n  len=len*float(0.5);\n  len*=len;\n  // Stretch kernel {1.0 vert|horz, to sqrt(2.0) on diagonal}.\n  float stretch=(dir.x*dir.x+dir.y*dir.y)*safeRcp(max(abs(dir.x),abs(dir.y)));\n  // Anisotropic length after rotation,\n  //  x := 1.0 lerp to 'stretch' on edges\n  //  y := 1.0 lerp to 2x on edges\n  vec2 len2=vec2(float(1.0)+(stretch-float(1.0))*len,float(1.0)+float(-0.5)*len);\n  // Based on the amount of 'edge',\n  // the window shifts from +/-{sqrt(2.0) to slightly beyond 2.0}.\n  float lob=float(0.5)+float((1.0/4.0-0.04)-0.5)*len;\n  // Set distance^2 clipping point to the end of the adjustable window.\n  float clp=safeRcp(lob);\n//------------------------------------------------------------------------------------------------------------------------------\n  // Accumulation mixed with min/max of 4 nearest.\n  //    b c\n  //  e f g h\n  //  i j k l\n  //    n o\n  vec3 min4=min(min3(vec3(ijfeR.z,ijfeG.z,ijfeB.z),vec3(klhgR.w,klhgG.w,klhgB.w),vec3(ijfeR.y,ijfeG.y,ijfeB.y)),\n               vec3(klhgR.x,klhgG.x,klhgB.x));\n  vec3 max4=max(max3(vec3(ijfeR.z,ijfeG.z,ijfeB.z),vec3(klhgR.w,klhgG.w,klhgB.w),vec3(ijfeR.y,ijfeG.y,ijfeB.y)),\n               vec3(klhgR.x,klhgG.x,klhgB.x));\n  // Accumulation.\n  vec3 aC=vec3(0.0);\n  float aW=float(0.0);\n  FsrEasuTapF(aC,aW,vec2( 0.0,-1.0)-pp,dir,len2,lob,clp,vec3(bczzR.x,bczzG.x,bczzB.x)); // b\n  FsrEasuTapF(aC,aW,vec2( 1.0,-1.0)-pp,dir,len2,lob,clp,vec3(bczzR.y,bczzG.y,bczzB.y)); // c\n  FsrEasuTapF(aC,aW,vec2(-1.0, 1.0)-pp,dir,len2,lob,clp,vec3(ijfeR.x,ijfeG.x,ijfeB.x)); // i\n  FsrEasuTapF(aC,aW,vec2( 0.0, 1.0)-pp,dir,len2,lob,clp,vec3(ijfeR.y,ijfeG.y,ijfeB.y)); // j\n  FsrEasuTapF(aC,aW,vec2( 0.0, 0.0)-pp,dir,len2,lob,clp,vec3(ijfeR.z,ijfeG.z,ijfeB.z)); // f\n  FsrEasuTapF(aC,aW,vec2(-1.0, 0.0)-pp,dir,len2,lob,clp,vec3(ijfeR.w,ijfeG.w,ijfeB.w)); // e\n  FsrEasuTapF(aC,aW,vec2( 1.0, 1.0)-pp,dir,len2,lob,clp,vec3(klhgR.x,klhgG.x,klhgB.x)); // k\n  FsrEasuTapF(aC,aW,vec2( 2.0, 1.0)-pp,dir,len2,lob,clp,vec3(klhgR.y,klhgG.y,klhgB.y)); // l\n  FsrEasuTapF(aC,aW,vec2( 2.0, 0.0)-pp,dir,len2,lob,clp,vec3(klhgR.z,klhgG.z,klhgB.z)); // h\n  FsrEasuTapF(aC,aW,vec2( 1.0, 0.0)-pp,dir,len2,lob,clp,vec3(klhgR.w,klhgG.w,klhgB.w)); // g\n  FsrEasuTapF(aC,aW,vec2( 1.0, 2.0)-pp,dir,len2,lob,clp,vec3(zzonR.z,zzonG.z,zzonB.z)); // o\n  FsrEasuTapF(aC,aW,vec2( 0.0, 2.0)-pp,dir,len2,lob,clp,vec3(zzonR.w,zzonG.w,zzonB.w)); // n\n//------------------------------------------------------------------------------------------------------------------------------\n  // Normalize and dering.\n  pix=min(max4,max(min4,aC*vec3(safeRcp(aW))));}\nvoid main(){vec2 size=vec2(textureSize(source,0)),scale=size/outputSize;\n vec4 con0=vec4(scale,.5*scale-.5),con1=vec4(1./size,vec2(1,-1)/size),con2=vec4(vec2(-1,2)/size,vec2(1,2)/size),con3=vec4(vec2(0,4)/size,0,0);\n vec3 c;FsrEasuF(c,gl_FragCoord.xy-.5,con0,con1,con2,con3);fragColor=vec4(c,1);}\n", "finish": "#version 300 es\nprecision highp float;\nprecision highp sampler2D;\nuniform sampler2D source;\nuniform vec2 outputSize;\nuniform float contrast,saturation,shadows,deband;\nuniform bool diagnostic;\nout vec4 fragColor;\n// Also embedded in the sharpening shader: round only at final presentation.\nvec3 finishColor(vec3 c){\n float l=dot(c,vec3(.2126,.7152,.0722));\n c+=shadows*pow(max(0.,1.-l),3.)*.15;\n float noise=fract(52.9829189*fract(dot(gl_FragCoord.xy,vec2(.06711056,.00583715))))-.5;\n // Full half-LSB dither preserves fractional levels; scaling it by filter strength\n // would bias rounding. Integer black/white remain unchanged after quantization.\n if(deband>0.)c+=noise/255.;\n if(diagnostic)c=mix(c,vec3(1,0,.75),.65);\n return clamp(c,0.,1.);\n}\nvoid main(){vec3 c=texture(source,gl_FragCoord.xy/outputSize).rgb;\n float l=dot(c,vec3(.2126,.7152,.0722));\n c=mix(vec3(l),c,saturation);c=(c-.5)*contrast+.5;\n fragColor=vec4(finishColor(c),1.);}\n", "motion": "#version 300 es\nprecision highp float;\nprecision highp sampler2D;\nuniform sampler2D source, previous, cut, fullSource, fullPrevious;\nuniform vec2 outputSize;\nuniform bool validHistory;\nout vec4 fragColor;\nfloat lum(vec3 c){return dot(c,vec3(.2126,.7152,.0722));}\nfloat lowLuma[5],fullLuma[5];\nfloat matchingError(vec2 uv,vec2 candidate,vec2 stepSize){\n float error=0.;for(int i=0;i<5;i++){\n  vec2 d=i==0?vec2(0):i==1?vec2(1,0):i==2?vec2(-1,0):i==3?vec2(0,1):vec2(0,-1);\n  error+=abs(lowLuma[i]-lum(texture(previous,uv+(d+candidate)*stepSize).rgb))*.2;\n }return error+length(candidate)*.00001;\n}\nfloat fineError(vec2 uv,vec2 offset){\n vec2 size=vec2(textureSize(fullSource,0));\n float error=0.;\n for(int i=0;i<5;i++){\n  vec2 d=i==0?vec2(0):i==1?vec2(3,0):i==2?vec2(-3,0):i==3?vec2(0,3):vec2(0,-3);\n  error+=abs(fullLuma[i]-lum(texture(fullPrevious,uv+(d+offset)/size).rgb))*.2;\n }\n return error;\n}\nvoid main(){\n if(!validHistory||texture(cut,vec2(.5)).r>.12){fragColor=vec4(vec2(128./255.),0,1);return;}\n vec2 uv=gl_FragCoord.xy/outputSize,stepSize=1./vec2(textureSize(source,0));\n // Current-frame samples do not depend on the candidate vector. Fetch once.\n for(int i=0;i<5;i++){\n  vec2 d=i==0?vec2(0):i==1?vec2(1,0):i==2?vec2(-1,0):i==3?vec2(0,1):vec2(0,-1);\n  lowLuma[i]=lum(texture(source,uv+d*stepSize).rgb);\n  fullLuma[i]=lum(texture(fullSource,uv+d*3./vec2(textureSize(fullSource,0))).rgb);\n }\n float best=10.,second=10.;vec2 offset=vec2(0);\n // Keep the fine local search, then search coarse offsets up to 32 source pixels.\n for(int pass=0;pass<2;pass++)for(int y=-2;y<=2;y++)for(int x=-2;x<=2;x++){\n  if(pass==1&&x==0&&y==0)continue;\n  vec2 candidate=vec2(x,y)*(pass==0?1.:4.);float error=matchingError(uv,candidate,stepSize);\n  if(error<best){second=best;best=error;offset=candidate;}else second=min(second,error);\n }\n vec2 coarse=offset;\n // Refine only a winning coarse vector. Maximum supported displacement is 40px.\n if(any(greaterThan(abs(coarse),vec2(2))))for(int y=-2;y<=2;y++)for(int x=-2;x<=2;x++){\n  vec2 candidate=coarse+vec2(x,y);\n  if(all(lessThanEqual(abs(candidate),vec2(2)))||all(lessThan(abs(mod(candidate,4.)),vec2(.001))))continue;\n  float error=matchingError(uv,candidate,stepSize);\n  if(error<best){second=best;best=error;offset=candidate;}else second=min(second,error);\n }\n float coarseConfidence=smoothstep(.0002,.004,second-best);\n // Refine only at the small motion-field resolution. No extra full-frame pass.\n // Use the actual size ratio: odd source dimensions are not exactly 4:1.\n vec2 fullSize=vec2(textureSize(fullSource,0));\n vec2 center=offset*fullSize/vec2(textureSize(source,0)),fine=center;\n float fineBest=10.,fineSecond=10.;\n for(int y=-2;y<=2;y++)for(int x=-2;x<=2;x++){\n  vec2 candidate=center+vec2(x,y);float error=fineError(uv,candidate);\n  if(error<fineBest){fineSecond=fineBest;fineBest=error;fine=candidate;}else fineSecond=min(fineSecond,error);\n }\n float confidence=(1.-smoothstep(.008,.045,fineBest))*max(coarseConfidence,smoothstep(.0002,.004,fineSecond-fineBest));\n center=fine;\n for(int y=-1;y<=1;y++)for(int x=-1;x<=1;x++){\n  if(x==0&&y==0)continue;\n  vec2 candidate=center+vec2(x,y)*.5;float error=fineError(uv,candidate);\n  if(error<fineBest){fineBest=error;fine=candidate;}\n }\n // Exact half-pixel encoding in RGBA8, including zero (128), without float targets.\n fragColor=vec4((clamp(round(fine*2.),vec2(-128),vec2(127))+128.)/255.,confidence,1.);\n}\n", "rcas": "#version 300 es\nprecision highp float;\nprecision highp sampler2D;\n// FidelityFX Super Resolution Sample\n//\n// Copyright (c) 2021 Advanced Micro Devices, Inc. All rights reserved.\n// Permission is hereby granted, free of charge, to any person obtaining a copy\n// of this software and associated documentation files(the \"Software\"), to deal\n// in the Software without restriction, including without limitation the rights\n// to use, copy, modify, merge, publish, distribute, sublicense, and / or sell\n// copies of the Software, and to permit persons to whom the Software is\n// furnished to do so, subject to the following conditions :\n// The above copyright notice and this permission notice shall be included in\n// all copies or substantial portions of the Software.\n// THE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\n// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\n// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.IN NO EVENT SHALL THE\n// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\n// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\n// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN\n// THE SOFTWARE.\n\n// RCAS port of vendor/ffx_fsr1.h FsrRcasF, denoise enabled.\n// Exact guarded reciprocals replace AMD approximations. Local halo limiter is ours.\nuniform sampler2D data;\nuniform vec2 outputSize;\nuniform float rcasStrength,haloMargin,noiseFloor,contrast,saturation,shadows,deband;\nuniform bool diagnostic,lumaSharpen;\nout vec4 fragColor;\nvec3 finishColor(vec3 c){\n float l=dot(c,vec3(.2126,.7152,.0722));\n c+=shadows*pow(max(0.,1.-l),3.)*.15;\n float noise=fract(52.9829189*fract(dot(gl_FragCoord.xy,vec2(.06711056,.00583715))))-.5;\n // Full half-LSB dither preserves fractional levels; scaling it by filter strength\n // would bias rounding. Integer black/white remain unchanged after quantization.\n if(deband>0.)c+=noise/255.;\n if(diagnostic)c=mix(c,vec3(1,0,.75),.65);\n return clamp(c,0.,1.);\n}\n\nfloat luma2(vec3 c){return c.b*.5+c.r*.5+c.g;}\nvoid main(){\n vec2 uv=gl_FragCoord.xy/outputSize,stepSize=1./vec2(textureSize(data,0));\n vec3 e=texture(data,uv).rgb,c=e;\n if(rcasStrength>0.){\n  vec3 b=texture(data,uv+vec2(0,-1)*stepSize).rgb,d=texture(data,uv+vec2(-1,0)*stepSize).rgb;\n  vec3 f=texture(data,uv+vec2(1,0)*stepSize).rgb,h=texture(data,uv+vec2(0,1)*stepSize).rgb;\n  float bl=luma2(b),dl=luma2(d),el=luma2(e),fl=luma2(f),hl=luma2(h);\n  float range=max(max(max(bl,dl),max(fl,hl)),el)-min(min(min(bl,dl),min(fl,hl)),el);\n  float noise=1.-.5*clamp(abs(.25*(bl+dl+fl+hl)-el)/max(range,1e-6),0.,1.);\n  vec3 mn=min(min(b,d),min(f,h)),mx=max(max(b,d),max(f,h));\n  vec3 hitMin=min(mn,e)/max(4.*mx,vec3(1e-6));\n  vec3 hitMax=(1.-max(mx,e))/min(4.*mn-4.,vec3(-1e-6));\n  vec3 lobes=max(-hitMin,hitMax);\n  float lobe=max(-.1875,min(max(max(lobes.r,lobes.g),lobes.b),0.))*rcasStrength*noise;\n  c=(lobe*(b+d+f+h)+e)/(4.*lobe+1.);\n  vec3 lo=min(mn,e),hi=max(mx,e);\n  float detail=smoothstep(noiseFloor,noiseFloor+4./255.,max(max(hi.r-lo.r,hi.g-lo.g),hi.b-lo.b));\n  c=clamp(mix(e,c,detail),lo-haloMargin,hi+haloMargin);\n  if(lumaSharpen)c=clamp(e+vec3(dot(c-e,vec3(.2126,.7152,.0722))),0.,1.);\n }\n float l=dot(c,vec3(.299,.587,.114));c=mix(vec3(l),c,saturation);c=contrast*(c-.5)+.5;\n fragColor=vec4(finishColor(c),1);\n}\n", "spatial": "#version 300 es\nprecision highp float;\nprecision highp sampler2D;\nuniform sampler2D source;\nuniform float cleanup, deband, debandTaps, chroma, detail, antialias;\nuniform bool quantize,selective;\nout vec4 fragColor;\nfloat peak(vec3 c){return max(max(abs(c.r),abs(c.g)),abs(c.b));}\nfloat lum(vec3 c){return dot(c,vec3(.2126,.7152,.0722));}\nvec3 at(vec2 p){return texelFetch(source,clamp(ivec2(p),ivec2(0),textureSize(source,0)-1),0).rgb;}\nvoid main(){\n vec2 p=gl_FragCoord.xy-.5;vec3 c=at(p), result=c;\n vec3 west=at(p-vec2(1,0)),east=at(p+vec2(1,0));\n vec3 south=at(p-vec2(0,1)),north=at(p+vec2(0,1));\n // Gradient sign reversals identify fine texture/extrema, even at low contrast.\n // Reuse these neighbors for cleanup; no extra classification render target.\n float reversal=sqrt(max(0.,max(-lum(c-west)*lum(east-c),-lum(c-south)*lum(north-c))));\n float textureMask=smoothstep(.003,.015,reversal);\n // Color extrema matter even on nearly isoluminant colored text and fine lines.\n if(selective){\n  vec3 rx=max(-(c-west)*(east-c),-(c-south)*(north-c));\n  textureMask=max(textureMask,smoothstep(.003,.015,sqrt(max(0.,max(max(rx.r,rx.g),rx.b)))));\n }\n // Detect a small step between smooth regions; do not assume a codec block grid.\n if(cleanup>0.)for(int axis=0;axis<2;axis++){\n  vec2 d=axis==0?vec2(1,0):vec2(0,1);\n  vec3 l=axis==0?west:south,ll=at(p-2.*d),r=axis==0?east:north,rr=at(p+2.*d);\n  float left=selective?peak(c-l):abs(lum(c-l)),right=selective?peak(r-c):abs(lum(r-c));\n  float outerL=selective?peak(l-ll):abs(lum(l-ll)),outerR=selective?peak(rr-r):abs(lum(rr-r));\n  float jump=max(left,right),side=min(left,right);\n  float smoothSides=1.-smoothstep(.003,.025,max(max(outerL,outerR),side));\n  float smallStep=smoothstep(.003,.012,jump)*(1.-smoothstep(.04,.10,jump));\n  // Reject a continuous ramp: it is not evidence of a compression boundary.\n  float confidence=selective?1.-smoothstep(.2,.7,max(max(outerL,outerR),side)/max(jump,1e-5)):1.;\n  vec3 across=left>right?l:r;\n  result=mix(result,(c+across)*.5,cleanup*confidence*smoothSides*smallStep*.8*(1.-textureMask));\n }\n if(deband>0.){\n  vec3 avg=vec3(0);float diff=0.,weightSum=0.;\n  float radius=mix(2.,8.,deband);\n  for(int i=0;i<4;i++){\n   if(float(i)>=debandTaps)break;\n   vec2 d=i==0?vec2(1,.5):i==1?vec2(-1,-.5):i==2?vec2(.5,-1):vec2(-.5,1);\n   vec3 n=at(p+floor(d*radius));\n   // Outlying samples across an edge cannot pull a smooth region toward it.\n   float weight=selective?1.-smoothstep(.006,.012+deband*.04,peak(n-c)):1.;\n   avg+=n*weight;weightSum+=weight;\n   diff=max(diff,max(max(abs(n.r-c.r),abs(n.g-c.g)),abs(n.b-c.b)));\n  }\n  avg=weightSum>0.?avg/weightSum:c;\n  float flatRegion=1.-smoothstep(.006,.012+deband*.04,diff);\n  result=mix(result,avg,deband*flatRegion*.8*(1.-textureMask));\n }\n if(chroma>0.){\n  // Chroma from luma. 4:2:0 color is upsampled with a ~2 px blur while luma\n  // stays sharp. Across a luma edge, samples 2 px away on each side carry\n  // clean color; the center luma says which side (or blend) it belongs to.\n  vec2 g=vec2(lum(east)-lum(west),lum(north)-lum(south));\n  float gl=length(g);\n  if(gl>4./255.){\n   vec2 size=vec2(textureSize(source,0)),uv=(p+.5)/size,d=g/gl*2./size;\n   vec3 A=texture(source,uv-d).rgb,B=texture(source,uv+d).rgb;\n   float yA=lum(A),yB=lum(B),Y=lum(result),span=yB-yA;\n   float s=clamp((Y-yA)/(abs(span)>1e-4?span:1e-4),0.,1.);\n   vec2 cA=vec2(A.b,A.r)-yA,cB=vec2(B.b,B.r)-yB,cur=vec2(result.b,result.r)-Y,pred=mix(cA,cB,s);\n   // Only a blend of both sides is treated as upsampling blur; color outside\n   // that range is real detail (thin colored lines, text) and is kept.\n   vec2 inside=step(min(cA,cB)-2./255.,cur)*step(cur,max(cA,cB)+2./255.);\n   vec2 weight=chroma*smoothstep(4./255.,12./255.,abs(span))*inside;\n   vec2 cb_cr=mix(cur,pred,weight);\n   float Bc=cb_cr.x+Y,Rc=cb_cr.y+Y;\n   result=vec3(Rc,(Y-.2126*Rc-.0722*Bc)/.7152,Bc);\n  }\n }\n if(detail>0.){\n  // Reuse center/cross samples; fetch only diagonals and distance-2 cross.\n  vec3 w[8]=vec3[8](at(p+vec2(-1,-1)),at(p+vec2(1,-1)),at(p+vec2(-1,1)),at(p+vec2(1,1)),at(p+vec2(2,0)),at(p-vec2(2,0)),at(p+vec2(0,2)),at(p-vec2(0,2)));\n  float lo=min(min(lum(c),min(lum(west),lum(east))),min(lum(south),lum(north))),hi=max(max(lum(c),max(lum(west),lum(east))),max(lum(south),lum(north)));\n  for(int i=0;i<4;i++){float l=lum(w[i]);lo=min(lo,l);hi=max(hi,l);}\n  // Cleanup/deband already smoothed this pixel: do not restore what they removed.\n  float untouched=1.-smoothstep(.5/255.,2./255.,peak(result-c));\n  // Luma-only detail: no colored fringes. Coring grows near strong edges so\n  // encoder ringing/mosquito noise is not amplified with real texture. The\n  // wide range (5x5 cross + ring) finds strong edges up to ~3 px away.\n  float L=lum(result),range=hi-lo,wLo=lo,wHi=hi;\n  for(int i=4;i<8;i++){float l=lum(w[i]);wLo=min(wLo,l);wHi=max(wHi,l);}\n  float fine=lum(c)-.25*(lum(west)+lum(east)+lum(south)+lum(north));\n  vec2 size=vec2(textureSize(source,0)),uv=(p+.5)/size;float ring=0.;\n  for(int i=0;i<8;i++){\n   vec2 d=i==0?vec2(3.5,.5):i==1?vec2(-3.5,-.5):i==2?vec2(.5,-3.5):i==3?vec2(-.5,3.5):i==4?vec2(2.5):i==5?vec2(-2.5):i==6?vec2(2.5,-2.5):vec2(-2.5,2.5);\n   float l=lum(texture(source,uv+d/size).rgb);ring+=l;wLo=min(wLo,l);wHi=max(wHi,l);\n  }\n  float clarity=lum(c)-ring/8.;\n  float t=1.5/255.+.06*range+.04*(wHi-wLo);\n  fine=sign(fine)*max(abs(fine)-t,0.);clarity=sign(clarity)*max(abs(clarity)-t,0.);\n  float dL=detail*untouched*(1.2*fine+.8*clarity*(1.-smoothstep(.15,.4,wHi-wLo)));\n  float margin=detail*2./255.;\n  // Bound new overshoot only; never pull an existing value back.\n  result+=clamp(L+dL,min(L,lo-margin),max(L,hi+margin))-L;\n }\n if(antialias>0.){\n  // Same directional AA as antialias.glsl, fused here when temporal is off:\n  // saves a full-frame pass and render target (memory bandwidth on iGPUs).\n  // Direction and blend come from the source; the blend is applied as a delta.\n  float nw=lum(at(p+vec2(-1,1))),ne=lum(at(p+vec2(1,1))),sw=lum(at(p+vec2(-1,-1))),se=lum(at(p+vec2(1,-1)));\n  float mid=lum(c),lo=min(mid,min(min(nw,ne),min(sw,se))),hi=max(mid,max(max(nw,ne),max(sw,se)));\n  vec2 dir=vec2(-(nw+ne-sw-se),nw+sw-ne-se);\n  float major=max(abs(dir.x),abs(dir.y));\n  float weight=antialias*smoothstep(.04,.15,hi-lo)*smoothstep(.05,.35,min(abs(dir.x),abs(dir.y))/max(major,1e-5));\n  if(weight>0.){\n   vec2 size=vec2(textureSize(source,0)),uv=(p+.5)/size,d=dir/max(major,1e-5)/size*.5;\n   vec3 smoothColor=(texture(source,uv-d).rgb+texture(source,uv+d).rgb)*.5;\n   float sl=lum(smoothColor);\n   if(sl>=lo&&sl<=hi)result+=(smoothColor-c)*weight;\n  }\n }\n // On devices without float color targets, dither before this first quantization.\n if(quantize&&deband>0.)result+=(fract(52.9829189*fract(dot(gl_FragCoord.xy,vec2(.06711056,.00583715))))-.5)/255.;\n fragColor=vec4(clamp(result,0.,1.),1.);\n}\n", "temporal": "#version 300 es\nprecision highp float;\nprecision highp sampler2D;\nuniform sampler2D source, history, motion;\nuniform float temporal;\nout vec4 fragColor;\nvoid main(){\n vec2 size=vec2(textureSize(source,0)),uv=gl_FragCoord.xy/size;\n vec3 c=texture(source,uv).rgb,lo=c,hi=c;\n for(int y=-1;y<=1;y++)for(int x=-1;x<=1;x++){\n  vec3 n=texture(source,uv+vec2(x,y)/size).rgb;lo=min(lo,n);hi=max(hi,n);\n }\n vec3 field=texture(motion,uv).rgb;\n vec2 offset=(round(field.xy*255.)-128.)*.5;\n vec2 prevUV=uv+offset/size;\n vec3 old=texture(history,prevUV).rgb;\n float disagreement=max(max(abs(old.r-c.r),abs(old.g-c.g)),abs(old.b-c.b));\n float confidence=field.z*(1.-smoothstep(.02,.08,disagreement));\n if(any(lessThan(prevUV,vec2(0)))||any(greaterThan(prevUV,vec2(1))))confidence=0.;\n // Neighborhood clamp prevents old edges becoming trails or invented textures.\n old=clamp(old,lo-vec3(.004),hi+vec3(.004));\n fragColor=vec4(mix(c,old,temporal*confidence*.35),1.);\n}\n", "nnFeatures": "#version 300 es\nprecision highp float;\nprecision highp sampler2D;\nuniform sampler2D source;\nlayout(location=0) out vec4 featA;\nlayout(location=1) out vec4 featB;\nfloat Y(ivec2 p){return dot(texelFetch(source,clamp(p,ivec2(0),textureSize(source,0)-1),0).rgb,vec3(.2126,.7152,.0722));}\nvoid main(){ivec2 p=ivec2(gl_FragCoord.xy);\n vec4 hA=vec4(-0.226349,0.014705,0.006476,0.059624),hB=vec4(0.196681,-0.118776,0.014316,0.082932);float y;\n y=Y(p+ivec2(-1,-1));hA+=y*vec4(-0.157775,0.206327,0.434315,-0.279666);hB+=y*vec4(0.221413,-0.694872,0.093376,-0.538916);\n y=Y(p+ivec2(0,-1));hA+=y*vec4(-0.438596,0.246507,-0.337733,0.369609);hB+=y*vec4(-0.39346,-0.088393,0.514404,0.554256);\n y=Y(p+ivec2(1,-1));hA+=y*vec4(0.522971,0.3702,0.639016,-0.536868);hB+=y*vec4(0.07824,0.185036,-0.657592,0.70837);\n y=Y(p+ivec2(-1,0));hA+=y*vec4(-0.730832,-0.233706,0.42366,0.846775);hB+=y*vec4(-0.222371,-0.043975,-0.332283,-0.743265);\n y=Y(p+ivec2(0,0));hA+=y*vec4(-0.150888,0.408999,-0.659478,-0.365631);hB+=y*vec4(-1.388277,-0.823962,-0.268284,-0.802107);\n y=Y(p+ivec2(1,0));hA+=y*vec4(-1.056894,-0.842843,-0.174905,-0.26866);hB+=y*vec4(-0.053229,-0.506229,0.888183,0.175313);\n y=Y(p+ivec2(-1,1));hA+=y*vec4(-1.16294,-1.021929,0.190978,-0.160122);hB+=y*vec4(0.237714,-0.595438,-0.590489,0.173089);\n y=Y(p+ivec2(0,1));hA+=y*vec4(-0.953225,0.951,-0.07258,0.695426);hB+=y*vec4(0.172909,-0.472019,-0.1812,0.241279);\n y=Y(p+ivec2(1,1));hA+=y*vec4(-0.587355,-0.075366,-0.419964,-0.358507);hB+=y*vec4(0.174139,-0.177389,0.529243,0.159632);\n hA=max(hA,0.);hB=max(hB,0.);\n featA=max(vec4(0.025083,-0.005039,-0.060359,0.064819)+mat4(-0.621943,-0.463344,-0.115933,0.376332,-0.393935,-0.144085,-0.640372,-0.800653,-1.427048,0.260171,0.45471,-0.32547,0.45035,-0.165235,0.234294,-0.336041)*hA+mat4(-0.465179,-0.608917,-0.235469,0.379221,0.641487,-0.850979,-0.013973,-0.49559,0.025351,0.824426,0.423167,-0.268448,-0.549956,0.701361,0.319914,-0.337372)*hB,0.);\n featB=max(vec4(0.020966,-0.007923,0.005142,0.038897)+mat4(-0.037735,-0.190399,0.240126,-0.067749,0.437672,0.034552,-0.091689,0.037419,0.17063,-0.014929,0.061535,-0.013824,-0.149559,0.529273,0.026754,-0.18008)*hA+mat4(-1.681177,0.105725,-0.030044,0.226267,0.306316,-0.170306,0.534302,-0.007676,-0.225442,0.261837,-0.797967,-1.462143,0.689266,0.88499,0.075893,-0.010657)*hB,0.);\n}\n", "nnApply": "#version 300 es\nprecision highp float;\nprecision highp sampler2D;\nuniform sampler2D source,featA,featB;\nuniform float strength;\nout vec4 fragColor;\nvoid main(){ivec2 p=ivec2(gl_FragCoord.xy),m=textureSize(source,0)-1;float d=-0.001243;\n {ivec2 q=clamp(p+ivec2(-1,-1),ivec2(0),m);d+=dot(texelFetch(featA,q,0),vec4(0.037956,0.00161,5e-06,-0.025074))+dot(texelFetch(featB,q,0),vec4(-0.02408,0.018034,-0.106278,0.06329));}\n {ivec2 q=clamp(p+ivec2(0,-1),ivec2(0),m);d+=dot(texelFetch(featA,q,0),vec4(-0.035505,0.034456,0.003953,0.118791))+dot(texelFetch(featB,q,0),vec4(0.010837,-0.026097,-0.028258,-0.03518));}\n {ivec2 q=clamp(p+ivec2(1,-1),ivec2(0),m);d+=dot(texelFetch(featA,q,0),vec4(-0.03049,-0.018461,0.041689,-0.108793))+dot(texelFetch(featB,q,0),vec4(0.010782,-0.002217,-0.072839,-0.080931));}\n {ivec2 q=clamp(p+ivec2(-1,0),ivec2(0),m);d+=dot(texelFetch(featA,q,0),vec4(0.049853,-0.006694,0.05851,-0.119233))+dot(texelFetch(featB,q,0),vec4(0.006983,-0.019536,-0.198451,0.127994));}\n {ivec2 q=clamp(p+ivec2(0,0),ivec2(0),m);d+=dot(texelFetch(featA,q,0),vec4(0.049783,-0.037383,-0.04415,-0.044615))+dot(texelFetch(featB,q,0),vec4(-0.023085,0.035699,-0.07822,0.01058));}\n {ivec2 q=clamp(p+ivec2(1,0),ivec2(0),m);d+=dot(texelFetch(featA,q,0),vec4(0.019708,-0.029916,0.051002,-0.002716))+dot(texelFetch(featB,q,0),vec4(0.003588,-0.010781,-0.050707,-0.038427));}\n {ivec2 q=clamp(p+ivec2(-1,1),ivec2(0),m);d+=dot(texelFetch(featA,q,0),vec4(-0.001052,-0.01583,0.031577,0.070275))+dot(texelFetch(featB,q,0),vec4(0.03957,-0.005504,-0.093555,-0.078156));}\n {ivec2 q=clamp(p+ivec2(0,1),ivec2(0),m);d+=dot(texelFetch(featA,q,0),vec4(-0.020044,-0.022556,0.023078,0.110389))+dot(texelFetch(featB,q,0),vec4(0.025218,0.022058,-0.119821,0.046273));}\n {ivec2 q=clamp(p+ivec2(1,1),ivec2(0),m);d+=dot(texelFetch(featA,q,0),vec4(-0.032938,0.012272,-0.004361,-0.02909))+dot(texelFetch(featB,q,0),vec4(0.00613,0.00159,-0.068138,0.020778));}\n vec3 c=texelFetch(source,p,0).rgb;\n // Luma correction applied to all channels: chroma is left to the chroma stage.\n fragColor=vec4(clamp(c+vec3(strength*d),0.,1.),1);\n}\n", "cas": "#version 300 es\nprecision highp float;\nprecision highp sampler2D;uniform sampler2D data;uniform vec2 iResolution;const int FILTER_UNSHARP_MASKING = 1;const int FILTER_CAS = 2;const float CAS_CONTRAST_PEAK = 0.8 * -3.0 + 8.0;const vec3 LUMINOSITY_FACTOR = vec3(0.299, 0.587, 0.114);uniform int filterId;uniform bool qualityMode;uniform float sharpenFactor;uniform float brightness;uniform float contrast;uniform float saturation;out vec4 fragColor;uniform float shadows,deband;uniform bool diagnostic;\nvec3 finishColor(vec3 c){\n float l=dot(c,vec3(.2126,.7152,.0722));\n c+=shadows*pow(max(0.,1.-l),3.)*.15;\n float noise=fract(52.9829189*fract(dot(gl_FragCoord.xy,vec2(.06711056,.00583715))))-.5;\n // Full half-LSB dither preserves fractional levels; scaling it by filter strength\n // would bias rounding. Integer black/white remain unchanged after quantization.\n if(deband>0.)c+=noise/255.;\n if(diagnostic)c=mix(c,vec3(1,0,.75),.65);\n return clamp(c,0.,1.);\n}\n\nvec3 clarityBoost(sampler2D tex, vec2 coord, vec3 e) {vec2 texelSize = 1.0 / vec2(textureSize(tex, 0));vec3 b = texture(tex, coord + texelSize * vec2(0, 1)).rgb;vec3 d = texture(tex, coord + texelSize * vec2(-1, 0)).rgb;vec3 f = texture(tex, coord + texelSize * vec2(1, 0)).rgb;vec3 h = texture(tex, coord + texelSize * vec2(0, -1)).rgb;vec3 a;vec3 c;vec3 g;vec3 i;if (filterId == FILTER_UNSHARP_MASKING || qualityMode) {a = texture(tex, coord + texelSize * vec2(-1, 1)).rgb;c = texture(tex, coord + texelSize * vec2(1, 1)).rgb;g = texture(tex, coord + texelSize * vec2(-1, -1)).rgb;i = texture(tex, coord + texelSize * vec2(1, -1)).rgb;}if (filterId == FILTER_UNSHARP_MASKING) {vec3 gaussianBlur = (a + c + g + i) * 1.0 + (b + d + f + h) * 2.0 + e * 4.0;gaussianBlur /= 16.0;return e + (e - gaussianBlur) * sharpenFactor / 3.0;}vec3 minRgb = min(min(min(d, e), min(f, b)), h);vec3 maxRgb = max(max(max(d, e), max(f, b)), h);if (qualityMode) {minRgb += min(min(a, c), min(g, i));maxRgb += max(max(a, c), max(g, i));}vec3 reciprocalMaxRgb = 1.0 / max(maxRgb, vec3(1e-6));vec3 amplifyRgb = clamp(min(minRgb, 2.0 - maxRgb) * reciprocalMaxRgb, 0.0, 1.0);amplifyRgb = inversesqrt(max(amplifyRgb, vec3(1e-6)));vec3 weightRgb = -(1.0 / (amplifyRgb * CAS_CONTRAST_PEAK));vec3 reciprocalWeightRgb = 1.0 / (4.0 * weightRgb + 1.0);vec3 window = b + d + f + h;vec3 outColor = clamp((window * weightRgb + e) * reciprocalWeightRgb, 0.0, 1.0);return mix(e, outColor, sharpenFactor / 2.0);}void main() {vec2 uv = gl_FragCoord.xy / iResolution.xy;vec3 color = texture(data, uv).rgb;if (sharpenFactor > 0.0) {color = clarityBoost(data, uv, color);}color = mix(vec3(dot(color, LUMINOSITY_FACTOR)), color, saturation);color = contrast * (color - 0.5) + 0.5;color = brightness * color;fragColor = vec4(finishColor(color), 1.0);}", "casFiltered": "#version 300 es\nprecision highp float;\nprecision highp sampler2D;uniform sampler2D data;uniform vec2 iResolution;const int FILTER_UNSHARP_MASKING = 1;const int FILTER_CAS = 2;const float CAS_CONTRAST_PEAK = 0.8 * -3.0 + 8.0;const vec3 LUMINOSITY_FACTOR = vec3(0.299, 0.587, 0.114);uniform int filterId;uniform bool qualityMode;uniform float sharpenFactor;uniform float brightness;uniform float contrast;uniform float saturation;out vec4 fragColor;uniform float shadows,deband;uniform bool diagnostic;\nvec3 finishColor(vec3 c){\n float l=dot(c,vec3(.2126,.7152,.0722));\n c+=shadows*pow(max(0.,1.-l),3.)*.15;\n float noise=fract(52.9829189*fract(dot(gl_FragCoord.xy,vec2(.06711056,.00583715))))-.5;\n // Full half-LSB dither preserves fractional levels; scaling it by filter strength\n // would bias rounding. Integer black/white remain unchanged after quantization.\n if(deband>0.)c+=noise/255.;\n if(diagnostic)c=mix(c,vec3(1,0,.75),.65);\n return clamp(c,0.,1.);\n}\n\nuniform float haloMargin,noiseFloor;uniform bool lumaSharpen;\nvec3 limitSharpen(vec3 center,vec3 sharpened,vec3 lo,vec3 hi){\n float range=max(max(hi.r-lo.r,hi.g-lo.g),hi.b-lo.b);\n float detail=smoothstep(noiseFloor,noiseFloor+4.0/255.0,range);\n vec3 result=clamp(mix(center,sharpened,detail),lo-vec3(haloMargin),hi+vec3(haloMargin));\n if(lumaSharpen)result=clamp(center+vec3(dot(result-center,vec3(0.2126,0.7152,0.0722))),0.0,1.0);\n return result;\n}\nvec3 clarityBoost(sampler2D tex, vec2 coord, vec3 e) {vec2 texelSize = 1.0 / vec2(textureSize(tex, 0));vec3 b = texture(tex, coord + texelSize * vec2(0, 1)).rgb;vec3 d = texture(tex, coord + texelSize * vec2(-1, 0)).rgb;vec3 f = texture(tex, coord + texelSize * vec2(1, 0)).rgb;vec3 h = texture(tex, coord + texelSize * vec2(0, -1)).rgb;vec3 a;vec3 c;vec3 g;vec3 i;if (filterId == FILTER_UNSHARP_MASKING || qualityMode) {a = texture(tex, coord + texelSize * vec2(-1, 1)).rgb;c = texture(tex, coord + texelSize * vec2(1, 1)).rgb;g = texture(tex, coord + texelSize * vec2(-1, -1)).rgb;i = texture(tex, coord + texelSize * vec2(1, -1)).rgb;}if (filterId == FILTER_UNSHARP_MASKING) {vec3 gaussianBlur = (a + c + g + i) * 1.0 + (b + d + f + h) * 2.0 + e * 4.0;gaussianBlur /= 16.0;return limitSharpen(e,e + (e - gaussianBlur) * sharpenFactor / 3.0,min(min(min(d,e),min(f,b)),h),max(max(max(d,e),max(f,b)),h));}vec3 minRgb = min(min(min(d, e), min(f, b)), h);vec3 maxRgb = max(max(max(d, e), max(f, b)), h);if (qualityMode) {minRgb += min(min(a, c), min(g, i));maxRgb += max(max(a, c), max(g, i));}vec3 reciprocalMaxRgb = 1.0 / max(maxRgb, vec3(1e-6));vec3 amplifyRgb = clamp(min(minRgb, 2.0 - maxRgb) * reciprocalMaxRgb, 0.0, 1.0);amplifyRgb = inversesqrt(max(amplifyRgb, vec3(1e-6)));vec3 weightRgb = -(1.0 / (amplifyRgb * CAS_CONTRAST_PEAK));vec3 reciprocalWeightRgb = 1.0 / (4.0 * weightRgb + 1.0);vec3 window = b + d + f + h;vec3 outColor = clamp((window * weightRgb + e) * reciprocalWeightRgb, 0.0, 1.0);return limitSharpen(e,mix(e, outColor, sharpenFactor / 2.0),min(min(min(d,e),min(f,b)),h),max(max(max(d,e),max(f,b)),h));}void main() {vec2 uv = gl_FragCoord.xy / iResolution.xy;vec3 color = texture(data, uv).rgb;if (sharpenFactor > 0.0) {color = clarityBoost(data, uv, color);}color = mix(vec3(dot(color, LUMINOSITY_FACTOR)), color, saturation);color = contrast * (color - 0.5) + 0.5;color = brightness * color;fragColor = vec4(finishColor(color), 1.0);}"};
 /* Shared GPU video processing engine. GLSL assets are embedded by tools/build.py. */
 (() => {
@@ -695,7 +695,7 @@ globalThis.BxShaders={"antialias": "#version 300 es\nprecision highp float;\npre
  settings.contrast=1;settings.saturation=1;settings.shadows=0;
  const status={mode:'waiting',frames:0,lastFrame:0,resolution:'',error:'',gpuP95:null,measurement:'cadence',adaptation:'',fps:null,
   // Display intervals (ms) of the last ~8 s at 30 FPS, oldest first: the HUD's pacing graph.
-  intervals:[],net:null,warnings:[],adaptive:null,capture:{active:false,frames:0,reason:''}};
+  intervals:[],intervalsTotal:0,net:null,warnings:[],adaptive:null,capture:{active:false,frames:0,reason:''}};
  let activeEngine=null,activePlayer=null;
  // Physical pixels the video occupies on screen. The canvas CSS box is fixed by Better
  // xCloud (object-fit contain), so this does not depend on the canvas backing size.
@@ -712,7 +712,9 @@ globalThis.BxShaders={"antialias": "#version 300 es\nprecision highp float;\npre
  const api=window.BxImageFilter={settings,status,diagnostic:false,panelOpen:false,presets:BxRestoration.presets,
   // Restores the treatment; the HUD choice is a display preference and stays.
   reset(){const {hud,hudPosition}=settings;Object.assign(settings,BxRestoration.defaults,{hud,hudPosition});persist();api.diagnostic=false;activeEngine?.resetBudget();if(activePlayer){activePlayer.bxReferenceFps=null;activePlayer.bxTimes=[];activePlayer.bxCadenceMark=performance.now();}},
-  update(patch){Object.assign(settings,patch);if('capture' in patch||'fluidity' in patch)captureEpoch++;if(Object.keys(patch).some(k=>!LIVE_KEYS.has(k)))activeEngine?.resetBudget();persist();},
+  // Unchanged values are ignored: the gamepad repeats a held direction ~10 times a second, even at the ends.
+  update(patch){const changed=Object.keys(patch).filter(k=>settings[k]!==patch[k]);if(!changed.length)return;
+   Object.assign(settings,patch);if(changed.includes('capture')||changed.includes('fluidity'))captureEpoch++;if(changed.some(k=>!LIVE_KEYS.has(k)))activeEngine?.resetBudget();persist(true);},
   applyPreset(name){const p=BxRestoration.presets[name];if(p)api.update({...p.values});},
   preset:()=>BxRestoration.presetOf(settings),
   // Better xCloud keeps stream.*, server.* and userAgent.* as global prefs; video.* per stream/game.
@@ -737,7 +739,10 @@ globalThis.BxShaders={"antialias": "#version 300 es\nprecision highp float;\npre
     net:status.net&&Object.fromEntries(Object.entries(status.net).map(([k,v])=>[k,round(v)])),warnings:status.warnings.map(w=>w.text),
     preset:api.preset(),treatment:BxRestoration.normalize(settings),betterXcloud:native},null,1);},
  };
- function persist(){try{localStorage.setItem(key,JSON.stringify(BxRestoration.normalize(settings)));}catch{}smoothingTick();}
+ // Applies smoothing at once; the storage write is grouped (deferred=true) while a control is being moved.
+ let saveTimer=0;
+ function save(){saveTimer=0;try{localStorage.setItem(key,JSON.stringify(BxRestoration.normalize(settings)));}catch{}}
+ function persist(deferred){window.clearTimeout(saveTimer);if(deferred)saveTimer=window.setTimeout(save,400);else save();smoothingTick();}
  // Follow the connection independently of the renderer and whether the menu is open.
  const peer=()=>typeof STATES==='undefined'?null:STATES.currentStream?.peerConnection;
  let smoothingPeer=null,smoothingTimer=null;
@@ -780,15 +785,15 @@ globalThis.BxShaders={"antialias": "#version 300 es\nprecision highp float;\npre
  }
  const MAX_BITRATE=15360000;
  function updateWarnings(){
-  const w=[],pref=api.nativePref,net=status.net;
+  const w=[],pref=api.nativePref,net=status.net,dec=v=>v.toFixed(1).replace('.',',');
   if(pref('video.player.type')!==undefined&&pref('video.player.type')!=='webgl2')w.push({level:'error',key:'renderer',text:'Renderizador não é WebGL2: o tratamento está desligado.'});
-  const bitrate=pref('stream.video.maxBitrate');if(bitrate>0&&bitrate<MAX_BITRATE)w.push({level:'warn',key:'bitrate',text:`Bitrate máximo limitado a ${(bitrate/1024000).toFixed(1)} Mb/s no Better xCloud: use Ilimitado.`});
+  const bitrate=pref('stream.video.maxBitrate');if(bitrate>0&&bitrate<MAX_BITRATE)w.push({level:'warn',key:'bitrate',text:`Bitrate máximo limitado a ${dec(bitrate/1024000)} Mb/s no Better xCloud: use Ilimitado.`});
   const resolution=pref('stream.video.resolution');if(resolution&&!/^1080p/.test(resolution)&&resolution!=='auto')w.push({level:'warn',key:'resolution',text:'Resolução alvo abaixo de 1080p.'});
   if(net?.height&&net.height<1000)w.push({level:'warn',key:'stream',text:`O servidor está enviando ${net.height}p.`});
   if(net?.decoder==='software')w.push({level:'warn',key:'decoder',text:'Decodificação por software (CPU).'});
-  if(net?.lossPct>1)w.push({level:'warn',key:'loss',text:`Perda de pacotes de ${net.lossPct.toFixed(1)}%.`});
+  if(net?.lossPct>1)w.push({level:net.lossPct>2?'error':'warn',key:'loss',text:`Perda de pacotes de ${dec(net.lossPct)}%.`});
   // Explicit 2K/4K above the display (e.g. 1080p HDMI to a 4K TV) is scaled back down by the browser.
-  if(settings.mode==='filtered'&&['1440','2160'].includes(settings.output)&&status.display&&Number(settings.output)>status.display*1.1)w.push({level:'info',key:'output',text:`Tela em ${status.display}p: saída maior só aumenta custo. Use Automática.`});
+  if(settings.mode==='filtered'&&['1440','2160'].includes(settings.output)&&status.display&&Number(settings.output)>status.display*1.1)w.push({level:'info',key:'output',text:`Tela em ${status.display}p: saída maior só aumenta custo. Use Auto.`});
   if(status.mode==='error'&&status.error)w.push({level:'error',key:'engine',text:status.error});
   status.warnings=w;
  }
@@ -801,7 +806,7 @@ globalThis.BxShaders={"antialias": "#version 300 es\nprecision highp float;\npre
  // display time, plus the optional pacer ("Fluidez") that shows processed frames on a steady clock.
  const keep=(list,value,now)=>{list.push([now,value]);while(list.length>1&&now-list[0][0]>2000)list.shift();};
  // Records a frame shown on screen: 2 s window for the panel's pacing line, longer ring for the HUD graph.
- function shownAt(t,now){keep(t.display,now,now);if(t.lastShown!=null){status.intervals.push(now-t.lastShown);if(status.intervals.length>240)status.intervals.shift();}t.lastShown=now;}
+ function shownAt(t,now){keep(t.display,now,now);if(t.lastShown!=null){status.intervals.push(now-t.lastShown);status.intervalsTotal++;if(status.intervals.length>240)status.intervals.shift();}t.lastShown=now;}
  const statsOf=list=>BxRestoration.frameStats(list.map(e=>e[1]));
  function startTiming(player){
   if(player.bxTiming)return;
@@ -1058,17 +1063,18 @@ globalThis.BxShaders={"antialias": "#version 300 es\nprecision highp float;\npre
    case 'gpu': { const L = c.L || 10; return lo(.66 * L, L); }
    case 'total': return lo(70, 110);
    case 'bitrate': return c.height >= 1000 ? hi(12, 7) : hi(6, 3.5);
-   case 'qp': return lo(26, 32);
-   case 'loss': return v < .2 ? 'good' : v <= 1 ? 'ok' : 'bad';
+   // QP 28 is the neutral level of the compression adaptation: typical streams read good.
+   case 'qp': return lo(30, 36);
+   case 'loss': return v < .2 ? 'good' : v <= 2 ? 'ok' : 'bad';
    case 'height': return hi(1000, 700);
   }
   return 'none';
  }
  const RANK = {none: 0, good: 1, info: 1, ok: 2, bad: 3};
  function worst(...grades) { let w = 'none'; for (const g of grades) if (RANK[g] > RANK[w]) w = g; return w; }
- // Displayed grades: a new grade shows after it was computed on 2 consecutive ticks (~1 s); to or
- // from 'none' at once. Call .tick() once per refresh; within a tick a key always returns the same
- // grade, however many indicators read it.
+ // Displayed grades: a worse grade shows after it was computed on 2 consecutive ticks (~1 s); a better
+ // one, and to or from 'none', at once, so a recovered value is never painted bad (e.g. "0,0%" in red).
+ // Call .tick() once per refresh; within a tick a key always returns the same grade.
  function createHysteresis() {
   const state = new Map(), memo = new Map();
   const g = (key, grade) => {
@@ -1076,7 +1082,7 @@ globalThis.BxShaders={"antialias": "#version 300 es\nprecision highp float;\npre
    let s = state.get(key), out;
    if (!s) { state.set(key, {shown: grade, pend: null}); out = grade; }
    else if (grade === s.shown) { s.pend = null; out = grade; }
-   else if (grade === 'none' || s.shown === 'none' || s.pend === grade) { s.shown = grade; s.pend = null; out = grade; }
+   else if (grade === 'none' || s.shown === 'none' || s.pend === grade || RANK[grade] < RANK[s.shown]) { s.shown = grade; s.pend = null; out = grade; }
    else { s.pend = grade; out = s.shown; }
    memo.set(key, out);
    return out;
@@ -1225,20 +1231,23 @@ globalThis.BxShaders={"antialias": "#version 300 es\nprecision highp float;\npre
  --bxif-good-bg:rgba(79,224,210,.14);--bxif-ok-bg:rgba(255,207,90,.12);--bxif-bad-bg:rgba(255,95,109,.14);--bxif-info-bg:rgba(122,167,255,.12);--bxif-none-bg:rgba(139,145,156,.12);
  --bxif-ring:0 0 0 2px #1a1b1e,0 0 0 4px #fff;
  --bxif-fs-title:16px;--bxif-fs-ver:11px;--bxif-pill-h:22px;--bxif-fs-pill:11px;--bxif-fs-idx:12px;--bxif-fs-sec:13px;--bxif-fs-sum:13px;--bxif-sec-h:42px;
- --bxif-fs-label:14px;--bxif-fs-val:14px;--bxif-fs-seg:13.5px;--bxif-fs-hint:12.5px;--bxif-fs-read:13px;--bxif-fs-kpi:22px;--bxif-fs-cap:10.5px;--bxif-fs-sub:11px;--bxif-fs-tag:10px;
+ --bxif-fs-label:14px;--bxif-fs-val:14px;--bxif-fs-seg:13.5px;--bxif-fs-hint:12.5px;--bxif-fs-read:13px;--bxif-fs-kpi:22px;--bxif-fs-cap:11px;--bxif-fs-sub:11.5px;--bxif-fs-tag:10.5px;
  --bxif-row-h:44px;--bxif-row-px:12px;--bxif-row-py:6px;--bxif-rail-h:34px;--bxif-hit:32px;--bxif-track:4px;--bxif-thumb:18px;--bxif-sw-w:44px;--bxif-sw-h:24px;--bxif-knob:18px;
- --bxif-fs-12:12px;--bxif-fs-11:11px;--bxif-fs-105:10.5px;--bxif-fs-10:10px;--bxif-fs-95:9.5px;--bxif-badge:14px;
+ --bxif-fs-12:12.5px;--bxif-fs-11:11.5px;--bxif-fs-105:11px;--bxif-fs-10:11px;--bxif-fs-95:11px;--bxif-badge:14px;
  --bxif-chip-h:42px;--bxif-btn-h:38px;--bxif-gap:8px;--bxif-kpi-h:58px;--bxif-spark-h:36px;--bxif-head-h:36px;--bxif-live-px:14px;--bxif-live-py:12px;--bxif-scroll-b:44px}
 @media (max-height:500px){.bxif-panel{--bxif-fs-title:15px;--bxif-pill-h:20px;--bxif-fs-pill:10.5px;--bxif-fs-idx:11px;--bxif-fs-sec:12px;--bxif-fs-sum:12px;--bxif-sec-h:38px;
- --bxif-fs-label:13px;--bxif-fs-val:13px;--bxif-fs-seg:12.5px;--bxif-fs-hint:11.5px;--bxif-fs-read:12px;--bxif-fs-kpi:20px;--bxif-fs-cap:10px;--bxif-fs-sub:10.5px;
+ --bxif-fs-label:13px;--bxif-fs-val:13px;--bxif-fs-seg:12.5px;--bxif-fs-hint:12px;--bxif-fs-read:12.5px;--bxif-fs-kpi:20px;--bxif-fs-cap:11px;--bxif-fs-sub:11px;
+ --bxif-fs-12:12px;--bxif-fs-11:11.5px;--bxif-fs-105:11px;--bxif-fs-10:11px;--bxif-fs-95:11px;--bxif-fs-tag:10.5px;
  --bxif-row-h:40px;--bxif-row-py:4px;--bxif-rail-h:32px;--bxif-hit:28px;--bxif-thumb:16px;--bxif-sw-w:40px;--bxif-sw-h:22px;--bxif-knob:16px;
  --bxif-chip-h:40px;--bxif-btn-h:36px;--bxif-kpi-h:52px;--bxif-spark-h:32px;--bxif-head-h:32px;--bxif-live-px:12px;--bxif-live-py:10px}}
-@media (max-height:500px) and (pointer:coarse){.bxif-panel{--bxif-rail-h:34px;--bxif-thumb:20px}}
+/* Touch on the phone: every target at least 40 px tall, so near-miss taps stay in their own row. */
+@media (max-height:500px) and (pointer:coarse){.bxif-panel{--bxif-rail-h:44px;--bxif-hit:42px;--bxif-thumb:22px;--bxif-row-h:50px;--bxif-sec-h:44px;--bxif-btn-h:42px;--bxif-chip-h:44px;--bxif-sw-w:46px;--bxif-sw-h:26px;--bxif-knob:20px}
+ .bxif-panel .bxif-btn-sm{min-height:40px}}
 @media (min-height:900px){.bxif-panel{--bxif-ring:0 0 0 2px #1a1b1e,0 0 0 5px #fff;
- --bxif-fs-title:20px;--bxif-fs-ver:13px;--bxif-pill-h:26px;--bxif-fs-pill:13px;--bxif-fs-idx:14px;--bxif-fs-sec:15px;--bxif-fs-sum:15px;--bxif-sec-h:52px;
- --bxif-fs-label:17px;--bxif-fs-val:17px;--bxif-fs-seg:16px;--bxif-fs-hint:14px;--bxif-fs-read:15px;--bxif-fs-kpi:28px;--bxif-fs-cap:12px;--bxif-fs-sub:13px;--bxif-fs-tag:12px;
+ --bxif-fs-title:21px;--bxif-fs-ver:14px;--bxif-pill-h:28px;--bxif-fs-pill:14px;--bxif-fs-idx:15px;--bxif-fs-sec:16px;--bxif-fs-sum:16px;--bxif-sec-h:52px;
+ --bxif-fs-label:17px;--bxif-fs-val:17px;--bxif-fs-seg:16px;--bxif-fs-hint:15px;--bxif-fs-read:16px;--bxif-fs-kpi:28px;--bxif-fs-cap:14px;--bxif-fs-sub:14px;--bxif-fs-tag:13px;
  --bxif-row-h:56px;--bxif-row-px:16px;--bxif-row-py:8px;--bxif-rail-h:44px;--bxif-hit:40px;--bxif-track:6px;--bxif-thumb:24px;--bxif-sw-w:52px;--bxif-sw-h:28px;--bxif-knob:22px;
- --bxif-fs-12:15px;--bxif-fs-11:13px;--bxif-fs-105:12.5px;--bxif-fs-10:12px;--bxif-fs-95:11.5px;--bxif-badge:18px;
+ --bxif-fs-12:16px;--bxif-fs-11:14px;--bxif-fs-105:14px;--bxif-fs-10:14px;--bxif-fs-95:14px;--bxif-badge:18px;
  --bxif-chip-h:52px;--bxif-btn-h:48px;--bxif-gap:12px;--bxif-kpi-h:72px;--bxif-spark-h:48px;--bxif-head-h:44px;--bxif-live-px:16px;--bxif-live-py:14px;--bxif-scroll-b:56px}}
 .bxif-panel,.bxif-panel *,.bxif-panel *::before,.bxif-panel *::after{box-sizing:border-box}
 .bxif-panel{display:flex;flex-direction:column;gap:var(--bxif-gap);margin:12px 0 16px;text-align:left;font-family:var(--bx-title-font,Bahnschrift,Arial,Roboto,sans-serif);font-size:13px;line-height:1.3;font-weight:400;
@@ -1249,6 +1258,7 @@ globalThis.BxShaders={"antialias": "#version 300 es\nprecision highp float;\npre
 .bxif-panel [data-hide]{display:none!important}
 .bxif-panel [data-g=good]{color:var(--bxif-good)}.bxif-panel [data-g=ok]{color:var(--bxif-ok)}.bxif-panel [data-g=bad]{color:var(--bxif-bad)}
 .bxif-panel [data-g=info]{color:var(--bxif-info)}.bxif-panel [data-g=none]{color:var(--bxif-t3)}.bxif-panel [data-g=lab]{color:var(--bxif-t2)}.bxif-panel [data-g=dim]{color:var(--bxif-t3)}
+.bxif-meta [data-g=good],.bxif-lines [data-g=good],.bxif-legend [data-g=good],.bxif-total [data-g=good],.bxif-out [data-g=good],.bxif-pipe-v[data-g=good]{color:inherit}
 .bxif-dot{display:inline-block;flex:none;width:8px;height:8px;border-radius:50%;background:currentColor}
 [data-g=ok]>.bxif-dot{border-radius:1.5px;transform:rotate(45deg) scale(.82)}
 [data-g=bad]>.bxif-dot{width:9px;border-radius:0;clip-path:polygon(50% 0,100% 100%,0 100%)}
@@ -1271,8 +1281,9 @@ globalThis.BxShaders={"antialias": "#version 300 es\nprecision highp float;\npre
 .bxif-badge::before{content:attr(data-c);color:#141518}
 .bxif-warn-tx{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
 .bxif-warn-text{font-size:var(--bxif-fs-12);line-height:1.3;color:var(--bxif-t1)}
-.bxif-warn-hint{font-size:var(--bxif-fs-11);line-height:1.3;color:var(--bxif-t3)}
-.bxif-warn-more{font-size:var(--bxif-fs-11);color:var(--bxif-t3);padding:0 0 0 12px}
+.bxif-warn-hint{font-size:var(--bxif-fs-11);line-height:1.3;color:#a3a9b3}
+.bxif-panel .bxif-warn-more{align-self:flex-start;min-height:30px;padding:0 12px;border-radius:8px;font-size:var(--bxif-fs-11);font-weight:600;color:var(--bxif-t2)}
+.bxif-panel[data-nav="1"] .bxif-warn-more:focus{box-shadow:var(--bxif-ring);background:var(--bxif-rowfocus)}
 /* live card */
 .bxif-live{background:var(--bxif-bg0);border:1px solid #2c2f36;border-radius:10px;padding:var(--bxif-live-py) var(--bxif-live-px) 2px}
 .bxif-kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));min-height:var(--bxif-kpi-h)}
@@ -1283,11 +1294,10 @@ globalThis.BxShaders={"antialias": "#version 300 es\nprecision highp float;\npre
 .bxif-kpi-val{font-size:var(--bxif-fs-kpi);font-weight:600;line-height:1;white-space:nowrap;color:var(--bxif-t1);letter-spacing:-.01em;overflow:hidden}
 .bxif-unit{font-size:max(10px,.5em);font-weight:600;color:var(--bxif-t3);margin-left:2px;letter-spacing:0}
 .bxif-kpi-sub{font-size:var(--bxif-fs-sub);color:var(--bxif-t3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.bxif-spark{position:relative;height:var(--bxif-spark-h);margin-top:12px}
+.bxif-spark{position:relative;height:var(--bxif-spark-h);margin-top:4px}
 .bxif-spark canvas{display:block;width:100%;height:100%}
-.bxif-spark-cap,.bxif-spark-t{position:absolute;font-size:var(--bxif-fs-95);line-height:1;font-weight:700;color:var(--bxif-t3);pointer-events:none;text-shadow:0 0 3px #141518,0 0 3px #141518}
-.bxif-spark-cap{left:0;top:0;letter-spacing:.08em}
-.bxif-spark-t{right:0;bottom:calc(40% + 3px);font-weight:600}
+.bxif-spark-cap{display:flex;justify-content:space-between;margin-top:12px;font-size:var(--bxif-fs-95);line-height:1.1;font-weight:700;letter-spacing:.08em;color:var(--bxif-t3)}
+.bxif-spark-t{font-weight:600;letter-spacing:0}
 .bxif-meta{margin-top:10px;font-size:var(--bxif-fs-read);line-height:1.35;color:var(--bxif-t1);display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
 .bxif-meta[data-idle]{-webkit-line-clamp:3;color:var(--bxif-t2)}
 .bxif-meta>span:first-child[data-g=lab]{display:block;margin-bottom:2px}
@@ -1330,7 +1340,7 @@ globalThis.BxShaders={"antialias": "#version 300 es\nprecision highp float;\npre
 .bxif-row[data-disabled] .bxif-seg-opt,.bxif-row[data-disabled] .bxif-slider{pointer-events:none}
 @media (min-height:900px){.bxif-row{grid-template-columns:minmax(0,1fr) auto}
  .bxif-row>.bxif-ctl{grid-column:1/-1;grid-row:2;margin-top:8px}.bxif-row>.bxif-val{grid-column:2;width:auto;min-width:64px}
- .bxif-sec-head{gap:8px}.bxif-sec-title{letter-spacing:.05em}}
+ .bxif-sec-head{gap:8px}.bxif-sec-title{letter-spacing:.05em}.bxif-kpi-cap,.bxif-cap,.bxif-pipe-k,.bxif-spark-cap{letter-spacing:.02em}.bxif-kpi{padding-left:10px}.bxif-kpi-cap{font-size:13px;gap:4px}}
 .bxif-tag{display:inline-block;vertical-align:1px;margin-left:6px;padding:0 4px;border:1px solid #3a3f48;border-radius:4px;font-size:var(--bxif-fs-tag);font-weight:700;letter-spacing:.06em;line-height:1.5;color:var(--bxif-t2);text-transform:uppercase;white-space:nowrap}
 .bxif-tag[data-g=ok]{border-color:rgba(255,207,90,.5)}
 /* segmented choice */
@@ -1439,7 +1449,8 @@ globalThis.BxShaders={"antialias": "#version 300 es\nprecision highp float;\npre
 .bxif-about{display:flex;flex-direction:column;gap:8px;padding:2px 2px 6px}
 .bxif-about p{margin:0;font-size:var(--bxif-fs-12);line-height:1.4;color:var(--bxif-t2)}
 .bxif-foot-line{padding:0 2px;font-size:var(--bxif-fs-11);color:var(--bxif-t3)}
-.bx-settings-row.bxif-native-muted{opacity:.5}
+.bx-settings-row.bxif-native-muted>:not(.bx-settings-label){opacity:.45}
+.bx-settings-row.bxif-native-muted .bx-settings-label{color:#9ea4ae}
 .bx-settings-row.bxif-native-muted .bx-settings-label::after{content:"Substituída pela Nitidez do Tratamento de imagem";display:block;margin-top:2px;font-size:12px;font-weight:400;color:#b4b9c2}
 @media (prefers-reduced-motion:reduce){.bxif-panel *{transition:none!important;animation:none!important}}
 `;
@@ -1450,7 +1461,8 @@ globalThis.BxShaders={"antialias": "#version 300 es\nprecision highp float;\npre
  const SYNC_KEYS = ['mode', 'sharpness', 'sharpening', 'output', 'adaptive', 'fluidity', 'capture', 'smoothing', 'gpuBudget', 'spatialMode', 'hud', 'hudPosition', 'cleanup', 'deband', 'chroma', 'detail', 'temporal', 'antialias', 'neural'];
  const TREAT = ['cleanup', 'deband', 'chroma', 'detail', 'temporal', 'antialias', 'neural'];
  const UI_KEY = 'BxImageFilter.ui.v1';
- const ui = {open: {fluidez: true, nitidez: true, ajuste: false, desempenho: false, ferramentas: false}};
+ const phoneTier = (() => { try { return matchMedia('(max-height:500px)').matches; } catch { return false; } })();
+ const ui = {open: {fluidez: true, nitidez: !phoneTier, ajuste: false, desempenho: false, ferramentas: false}};
  try { const s = JSON.parse(localStorage.getItem(UI_KEY)); if (s && typeof s.open === 'object') for (const k in ui.open) if (typeof s.open?.[k] === 'boolean') ui.open[k] = s.open[k]; } catch {}
  const saveUi = () => { try { localStorage.setItem(UI_KEY, JSON.stringify(ui)); } catch {} };
 
@@ -1512,7 +1524,7 @@ globalThis.BxShaders={"antialias": "#version 300 es\nprecision highp float;\npre
  function syncAll(periodic) {
   const a = doc.activeElement;
   let skipped = false;
-  for (const c of controls) { if (pending.has(c.key) || periodic && root?.contains(a) && c.row.contains(a)) { skipped = true; continue; } c.sync(); }
+  for (const c of controls) { if (periodic && root?.contains(a) && c.row.contains(a)) { skipped = true; continue; } c.sync(); }
   updateDependents();
   if (!skipped) lastSig = sigOf();
  }
@@ -1631,6 +1643,8 @@ globalThis.BxShaders={"antialias": "#version 300 es\nprecision highp float;\npre
    if (gg.drag || tap) { g = gg; setAt(e.clientX, e); g = null; if (!gg.drag) input.focus({preventScroll: true}); }
   });
   wrap.addEventListener('pointercancel', () => { if (g?.raf) cancelAnimationFrame(g.raf); g = null; });
+  // A click listener makes Chromium's touch adjustment treat the track as a tap target of its own row.
+  wrap.addEventListener('click', () => {});
   c.sync = () => { const s = settings[o.key]; input.value = String(Math.round(s * scale)); fill(); text(s); };
   c.sync();
   controls.push(c);
@@ -1719,6 +1733,7 @@ globalThis.BxShaders={"antialias": "#version 300 es\nprecision highp float;\npre
   r.append(h('div', {class: 'bxif-head'}, h('div', {class: 'bxif-title'}, h('span', {class: 'bxif-name', text: 'Tratamento de imagem'}), h('span', {class: 'bxif-ver', text: VERSION})), els.pill));
   // [B] warnings
   els.warns = h('div', {class: 'bxif-warns', 'data-bxif-out': 'warnings', 'data-hide': ''});
+  els.warnText = new Map();
   els.warns.addEventListener('focusout', e => { if (!(e.relatedTarget && els.warns.contains(e.relatedTarget))) els.warnSig = null; });
   r.append(els.warns);
   // [C] live card
@@ -1732,8 +1747,8 @@ globalThis.BxShaders={"antialias": "#version 300 es\nprecision highp float;\npre
    hint: v => (CORNER[v] ? CORNER[v] + '. ' : '') + 'No celular, o modo Compacto usa a faixa preta lateral quando houver espaço.'});
   r.append(h('div', {class: 'bxif-live'},
    h('div', {class: 'bxif-kpis'}, els.k.fps.el, els.k.pacing.el, els.k.hitches.el, els.k.latency.el),
-   h('div', {class: 'bxif-spark'}, els.spark, h('span', {class: 'bxif-spark-cap', text: 'RITMO NA TELA'}), els.sparkT),
-   els.meta, h('div', {class: 'bxif-hr'}), hud.row, els.corner.row));
+   h('div', {class: 'bxif-spark-cap', 'aria-hidden': 'true'}, h('span', {text: 'RITMO NA TELA'}), els.sparkT),
+   h('div', {class: 'bxif-spark'}, els.spark), els.meta));
   // [D] 01 Fluidez
   const s1 = section('fluidez', '01', 'Fluidez');
   els.verdictTx = h('span', {class: 'bxif-verdict-tx'});
@@ -1755,7 +1770,7 @@ globalThis.BxShaders={"antialias": "#version 300 es\nprecision highp float;\npre
   const cell = (k, label) => { const v = h('span', {class: 'bxif-pipe-v'}), sub = h('span', {class: 'bxif-pipe-s'}); els.pipe[k] = {v, sub}; return h('div', {class: 'bxif-pipe-cell'}, h('span', {class: 'bxif-pipe-k', text: label}), v, sub); };
   els.pacingLine = h('div', {'data-bxif-out': 'pacing'}); els.fluLine = h('div', {'data-bxif-out': 'fluidity'});
   s1.body.append(els.verdict, flu.row, els.capture.row, els.smooth.row,
-   h('div', {class: 'bxif-cap', text: 'Onde nasce a oscilação · 2 s'}),
+   h('div', {class: 'bxif-cap'}, 'Onde nasce a oscilação ', h('span', {style: 'text-transform:none', text: '· 2 s'})),
    h('div', {class: 'bxif-pipe', 'data-bxif-out': 'pipeline'}, cell('srv', 'SERVIDOR'), h('i', {class: 'bxif-pipe-arr'}), cell('arr', 'CHEGADA'), h('i', {class: 'bxif-pipe-arr'}), cell('scr', 'TELA')),
    h('div', {class: 'bxif-lines'}, els.pacingLine, els.fluLine));
   s1.update = updateFluidez;
@@ -1801,7 +1816,7 @@ globalThis.BxShaders={"antialias": "#version 300 es\nprecision highp float;\npre
    setT(c.hint, hint);
    s3.body.append(c.row);
   }
-  const spatial = choice({key: 'spatialMode', label: 'Limpeza espacial', opts: [['selective', 'Seletiva (v8)'], ['legacy', 'Clássica (v7.1)']], hint: () => 'Seletiva preserva textura; Clássica é a referência v7.1.'});
+  const spatial = choice({key: 'spatialMode', label: 'Limpeza espacial', opts: [['selective', 'Seletiva'], ['legacy', 'Clássica']], hint: () => 'Seletiva (v8) preserva textura; Clássica é a referência da v7.1.'});
   s3.body.append(spatial.row);
   s3.update = updateAjuste;
   // [G] 04 Desempenho e rede
@@ -1824,7 +1839,7 @@ globalThis.BxShaders={"antialias": "#version 300 es\nprecision highp float;\npre
   s4.body.append(budget.row, els.gpu, els.latency, h('div', {class: 'bxif-lines', style: 'margin-top:4px'}, els.stream, els.decoder, els.quality, els.drops));
   s4.update = updateDesempenho;
   // [H] 05 Ferramentas
-  const s5 = section('ferramentas', '05', 'Ferramentas');
+  const s5 = section('ferramentas', '05', 'Indicadores e ferramentas');
   els.diag = toggle({key: 'diagnostic', label: 'Diagnóstico', sub: 'Colorir imagem', get: () => api.diagnostic, set: v => { api.diagnostic = v; if (lastSnap) { updateHeader(); updateSummaries(lastSnap); } },
    hint: 'Colore a imagem para confirmar que o tratamento está rodando. Não é salvo.'});
   els.measureStart = button('Iniciar medição', 'primary');
@@ -1848,8 +1863,8 @@ globalThis.BxShaders={"antialias": "#version 300 es\nprecision highp float;\npre
   els.copyBox = h('textarea', {class: 'bxif-copy', readonly: '', rows: '6', tabIndex: -1, 'data-hide': '', 'aria-label': 'Configuração'});
   els.copy = button('Copiar configuração', null, async () => {
    const text = api.configText(); els.copyBox.value = text;
-   try { await navigator.clipboard.writeText(text); flashLabel(els.copy, 'Configuração copiada', 'Copiar configuração'); }
-   catch { setT(els.copy._label, 'Copie o texto abaixo'); setA(els.copyBox, 'data-hide', null); els.copyBox.select(); }
+   if (await api.copyText(text)) flashLabel(els.copy, 'Configuração copiada', 'Copiar configuração');
+   else { setT(els.copy._label, 'Copie o texto abaixo'); setA(els.copyBox, 'data-hide', null); els.copyBox.select(); }
   });
   els.reset = button('Restaurar tratamento', 'danger', onReset);
   els.reset.append(h('i', {class: 'bxif-count', 'aria-hidden': 'true'}));
@@ -1862,11 +1877,24 @@ globalThis.BxShaders={"antialias": "#version 300 es\nprecision highp float;\npre
    'Suavidade: pede um alvo de buffer ao navegador, que pode ajustá-lo; mais regularidade com mais latência, sem atraso máximo garantido.',
    'Reconstrução neural (experimental): limpa blocos antes da nitidez; ~30% mais GPU. Degradês altos e Antialiasing suavizam textura.',
    'v9: padrões medidos em streams H.264 tipo xCloud. Tudo fica salvo para todos os jogos.'].map(t => h('p', {text: t})));
-  s5.body.append(els.diag.row, measureRow, toolRow, about);
+  s5.body.append(hud.row, els.corner.row, els.diag.row, measureRow, toolRow, about);
   s5.update = updateMeasure;
   for (const s of sections) { r.append(s.el); s.setOpen(!!ui.open[s.id]); }
   r.append(h('div', {class: 'bxif-foot-line', text: 'Salvo para todos os jogos · Tratamento de imagem ' + VERSION}));
   r.addEventListener('focusout', e => runDeferred(e.relatedTarget));
+  // Held D-pad presses never set html[data-active-input]: any focus not caused by a pointer shows the ring.
+  // Chromium's focus scroll ignores scroll-margin, so a control landing under the sticky selector is
+  // scrolled again with block:'start', which honours it (after Better xCloud's focus(), same task).
+  r.addEventListener('focusin', e => {
+   if (performance.now() - lastPointer > 400) setNav('1');
+   const t = e.target;
+   queueMicrotask(() => {
+    const sel = els.sticky;
+    if (doc.activeElement !== t || !sel?.isConnected) return;
+    const box = (t.closest('.bxif-seg,.bxif-slider,.bxif-sw,.bxif-chips') || t).getBoundingClientRect();
+    if (box.top < sel.getBoundingClientRect().bottom + 8) t.scrollIntoView({block: 'start'});
+   });
+  });
   return r;
  }
 
@@ -1917,25 +1945,43 @@ globalThis.BxShaders={"antialias": "#version 300 es\nprecision highp float;\npre
   setT(els.presetDesc, f ? f.description : p ? p.description : 'Valores ajustados à mão. Escolha um perfil para voltar a um ponto medido.');
  }
  function updateHeader() { const w = stateWord(); setT(els.pillWord, w.word); setA(els.pill, 'data-g', w.grade); }
- function updateWarnings() {
-  const list = (status.warnings || []).slice().sort((a, b) => (LEVEL[b.level] || 0) - (LEVEL[a.level] || 0));
-  const sig = list.map(w => w.key + ':' + w.text).join('|');
-  if (sig === els.warnSig || els.warns.contains(doc.activeElement)) return;
-  els.warnSig = sig;
-  els.warns.textContent = '';
+ // Errors first, then warnings with a fix one press away (they must never hide behind "+N"), then the
+ // rest. The block is rebuilt only when the set of warnings changes; texts (e.g. the loss %) update in place.
+ const ACTIONABLE = new Set(['output', 'renderer']);
+ const warnRank = w => w.level === 'error' ? 4 : ACTIONABLE.has(w.key) ? 3 : w.level === 'warn' ? 2 : 1;
+ function focusRenderer() {
+  const row = root?.parentElement && [...root.parentElement.children].find(e => e.prefKey === 'video.player.type');
+  if (!row) return;
+  // Controller-friendly selects (Android app) hide the native <select>; Better xCloud points nearby.focus at its '>' button.
+  const wrap = row.querySelector('.bx-select'), visible = e => { const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0 && (r.x >= 0 || r.y >= 0); };
+  const t = wrap?.nearby?.focus instanceof HTMLElement ? wrap.nearby.focus : [...row.querySelectorAll('*')].find(e => e.tabIndex >= 0 && !e.disabled && visible(e));
+  t?.focus();
+ }
+ function updateWarnings(force) {
+  const list = (status.warnings || []).slice().sort((a, b) => warnRank(b) - warnRank(a));
+  const shown = els.warnsAll ? list : list.slice(0, 3);
+  const sig = shown.map(w => w.key + ':' + w.level).join('|') + '|' + list.length + '|' + !!els.warnsAll;
+  if (sig === els.warnSig) { for (const w of shown) { const t = els.warnText.get(w.key); if (t) setT(t, w.text); } return; }
+  if (!force && els.warns.contains(doc.activeElement)) return;
+  els.warnSig = sig; els.warnText = new Map();
+  els.warns.textContent = ''; els.warnMore = null;
   setA(els.warns, 'data-hide', list.length ? null : '');
-  for (const w of list.slice(0, 3)) {
-   const tx = h('div', {class: 'bxif-warn-tx'}, h('span', {class: 'bxif-warn-text', text: w.text}), WARN_HINT[w.key] ? h('span', {class: 'bxif-warn-hint', text: WARN_HINT[w.key]}) : null);
+  for (const w of shown) {
+   const text = h('span', {class: 'bxif-warn-text', text: w.text}); els.warnText.set(w.key, text);
+   const tx = h('div', {class: 'bxif-warn-tx'}, text, WARN_HINT[w.key] ? h('span', {class: 'bxif-warn-hint', text: WARN_HINT[w.key]}) : null);
    let action = null;
    if (w.key === 'output') action = button('Usar Auto', 'sm', e => { commit('output', 'auto', e); syncAll(); });
-   if (w.key === 'renderer') action = button('Ir para Renderizador', 'sm', () => {
-    const row = root?.parentElement && [...root.parentElement.children].find(e => e.prefKey === 'video.player.type');
-    const t = row && [...row.querySelectorAll('*')].find(e => e.tabIndex >= 0 && !e.disabled);
-    t?.focus();
-   });
+   if (w.key === 'renderer') action = button('Ir para Renderizador', 'sm', focusRenderer);
    els.warns.append(h('div', {class: 'bxif-warn', 'data-level': w.level}, h('i', {class: 'bxif-badge', 'data-c': w.level === 'info' ? 'i' : '!', 'aria-hidden': 'true'}), tx, action));
   }
-  if (list.length > 3) els.warns.append(h('div', {class: 'bxif-warn-more', text: list.length === 4 ? '+1 aviso' : `+${list.length - 3} avisos`}));
+  if (list.length > 3) {
+   const rest = list.length - 3;
+   els.warnMore = button(els.warnsAll ? 'Mostrar menos' : rest === 1 ? 'Mostrar +1 aviso' : `Mostrar +${rest} avisos`, null, () => {
+    els.warnsAll = !els.warnsAll; updateWarnings(true); els.warnMore?.focus({preventScroll: true});
+   });
+   els.warnMore.className = 'bxif-warn-more';
+   els.warns.append(els.warnMore);
+  }
  }
  function parseRes() { const m = /(\d+)\s*×\s*(\d+)\s*→\s*(\d+)\s*×\s*(\d+)/.exec(status.resolution || ''); return m ? {w: +m[1], h: +m[2], ow: +m[3], oh: +m[4]} : null; }
  const DEC_SHORT = {hardware: 'HW', software: 'CPU'};
@@ -1944,7 +1990,7 @@ globalThis.BxShaders={"antialias": "#version 300 es\nprecision highp float;\npre
   if (!n) return;
   const sep = () => { if (parts.length) parts.push([' · ', 'dim']); };
   if (n.codec) { sep(); parts.push([n.codec, null]); }
-  sep(); parts.push([DEC_SHORT[n.decoder] || '?', G('dec-kind', s.gDecoder)]);
+  if (DEC_SHORT[n.decoder]) { sep(); parts.push([DEC_SHORT[n.decoder], G('dec-kind', s.gDecoder)]); }
   if (num(n.bitrateMbps)) { sep(); parts.push([fmt(n.bitrateMbps, 1) + ' Mb/s', G('bitrate', s.gBitrate)]); }
   if (num(s.qp)) { sep(); parts.push(['QP ' + fmtInt(s.qp), G('qp', s.gQp)]); }
   if (num(n.lossPct)) { sep(); parts.push(['perda ' + fmt(n.lossPct, 1) + '%', G('loss', s.gLoss)]); }
@@ -1955,7 +2001,7 @@ globalThis.BxShaders={"antialias": "#version 300 es\nprecision highp float;\npre
   kp(k.fps, on ? fmtInt(s.fps) : '—', '', on ? G('fps', s.gFps) : 'none', [['de ' + s.N, null]]);
   kp(k.pacing, on && p ? '±' + fmt(p.deviationMs, 1) : '—', on && p ? 'ms' : '', on && p ? G('dev', s.gDev) : 'none', [['p95 ', null], [on && p ? fmtMs(p.p95Ms) : '—', on && p ? G('p95', s.gP95) : 'none']]);
   kp(k.hitches, on && p ? String(p.hitches) : '—', '', on && p ? G('hit', s.gHit) : 'none',
-   s.missed === null && s.direct ? [['captura direta', 'good']] : [['pul. ', null], [s.missed === null ? '—' : String(s.missed), G('miss', s.gMiss)]]);
+   s.missed === null && s.direct ? [['captura direta', 'good']] : [['pulados ', null], [s.missed === null ? '—' : String(s.missed), G('miss', s.gMiss)]]);
   kp(k.latency, s.lat.total === null ? '—' : '≈' + fmtInt(s.lat.total), s.lat.total === null ? '' : 'ms', G('total', s.gTotal), [['rede ', null], [fmtMs(s.lat.rtt), G('rtt', s.gRtt)]]);
   drawSparkline(els.spark, status.intervals, {count: 240, T: s.T, dim: !on});
   setT(els.sparkT, fmt(s.T, 1) + ' ms');
@@ -1986,18 +2032,18 @@ globalThis.BxShaders={"antialias": "#version 300 es\nprecision highp float;\npre
   setParts(s4.sum, [['GPU ', null], [s.gpu === null ? '—' : fmtMs(s.gpu) + ' ms', G('gpu', s.gGpu)], [' · Lat. ', null], [s.lat.total === null ? '—' : fmtInt(s.lat.total) + ' ms', G('total', s.gTotal)]]);
   if (api.measuring) { setParts(s5.sum, [['Medindo ' + (clock() || '…'), null]]); setA(s5.sum, 'data-g', 'ok'); }
   else if (api.diagnostic) { setParts(s5.sum, [['Diagnóstico ligado', null]]); setA(s5.sum, 'data-g', 'info'); }
-  else { setParts(s5.sum, []); setA(s5.sum, 'data-g', null); }
+  else { setParts(s5.sum, [['Indicadores: ' + ({off: 'desligados', compact: 'Compacto', full: 'Completo'}[settings.hud] || ''), null]]); setA(s5.sum, 'data-g', null); }
  }
  function updateFluidez(s) {
   const fl = valueOf('fluidity'), cap = s.cap, n = s.net;
   if (fl === 'off') setParts(els.captureOut, []);
   else if (cap.active) setParts(els.captureOut, [['Captura direta · ' + fmtThousands(cap.frames) + ' quadros', 'good']]);
-  else if (valueOf('capture') === 'direct' && cap.reason) setParts(els.captureOut, [['Captura direta indisponível: ' + cap.reason, 'ok']]);
+  else if (valueOf('capture') === 'direct' && cap.reason) setParts(els.captureOut, [[cap.reason, /encerrado/i.test(cap.reason) ? 'lab' : 'ok']]);
   else if (valueOf('capture') === 'direct') setParts(els.captureOut, [['Captura direta: aguardando o vídeo', 'lab']]);
   else setParts(els.captureOut, [['Captura pelo vídeo', 'lab']]);
   setA(els.captureOut, 'data-hide', fl === 'off' || null);
   const sm = status.smoothing, req = sm ? sm.requestedMs : settings.smoothing;
-  setParts(els.smoothOut, [['Buffer: alvo ' + (req ? req + ' ms' : 'automático') + (sm && SMOOTH_STATE[sm.state] ? ' (' + SMOOTH_STATE[sm.state] + ')' : '') + ' · medido ', 'lab'],
+  setParts(els.smoothOut, [['Buffer: ' + (req ? 'alvo ' + req + ' ms' + (sm && SMOOTH_STATE[sm.state] ? ' (' + SMOOTH_STATE[sm.state] + ')' : '') : 'automático') + ' · medido ', 'lab'],
    [n && num(n.bufferMs) ? fmtMs(n.bufferMs) + ' ms' : '—', G('buf', s.gBuf)]]);
   if (els.refresh) {
    const R = refreshNow(), parts = [[R > 0 ? `Fixada em ${R} Hz pelo app` : 'O sistema decide a taxa', 'lab']];
@@ -2010,20 +2056,20 @@ globalThis.BxShaders={"antialias": "#version 300 es\nprecision highp float;\npre
   cellSet(els.pipe.arr, o?.arrival, o?.arrival ? fmt(o.arrival.meanMs, 1) + ' ms' : '—', 'arr', s.gArr);
   cellSet(els.pipe.scr, s.p, s.p ? 'p95 ' + fmtMs(s.p.p95Ms) : '—', 'dev', s.gDev);
   const p = s.p, pacing = [['Travadas ', 'lab'], [p ? String(p.hitches) : '—', p ? G('hit', s.gHit) : 'none']];
-  if (s.missed === null && s.direct) pacing.push([' · Pulados: ', 'lab'], ['nenhum (captura direta)', 'good']);
+  if (s.missed === null && s.direct) pacing.push([' · Pulados ', 'lab'], ['0 (captura direta)', 'good']);
   else pacing.push([' · Pulados ', 'lab'], [s.missed === null ? '—' : String(s.missed), G('miss', s.gMiss)], [o && num(o.presented) ? ' de ' + o.presented : '', 'lab']);
   setParts(els.pacingLine, pacing);
   const f = s.fl;
   if (f) {
-   const rate = drops.push(f.dropped);
+   const rate = s.dropRate;
    setParts(els.fluLine, [['Espera da Fluidez ', 'lab'], [num(f.extraMs) ? '+' + fmtMs(f.extraMs) + ' ms' : '—', G('wait', s.gWait)], [' · descartados ', 'lab'],
     [num(rate) ? fmtInt(rate) + '/min' : '—', G('drops', grade('drops', rate))]]);
-  } else { drops.push(null); setParts(els.fluLine, []); }
+  } else setParts(els.fluLine, []);
   setA(els.fluLine, 'data-hide', f ? null : '');
  }
  function updateNitidez(s) {
   setParts(els.outputOut, [[status.resolution || '—', null], [num(status.display) && status.display > 0 ? ' · vídeo na tela ' + status.display + 'p' : '', 'lab']]);
-  setA(els.outputOut, 'data-hide', status.resolution ? null : '');
+  setA(els.outputOut, 'data-hide', s.on && status.resolution ? null : '');
   const a = status.adaptive;
   if (!valueOf('adaptive')) { setParts(els.adaptiveOut, [['Desligado: usa os valores do Ajuste fino.', 'lab']]); setA(els.qpPos, 'data-hide', ''); return; }
   if (settings.mode !== 'filtered') setParts(els.adaptiveOut, [['Pausado durante a Comparação.', 'ok']]);
@@ -2064,7 +2110,7 @@ globalThis.BxShaders={"antialias": "#version 300 es\nprecision highp float;\npre
   setParts(els.adaptation, status.adaptation && s.on ? [['↓ ' + status.adaptation, 'ok']] : [['Nenhuma redução automática', 'dim']]);
   const lat = s.lat, flOn = valueOf('fluidity') !== 'off', segs = [lat.rtt, lat.buffer, lat.decode, lat.gpu, flOn ? lat.wait : 0];
   [...els.latBar.children].forEach((sp, i) => setS(sp, 'flex-grow', String(num(segs[i]) ? Math.max(0, +segs[i].toFixed(1)) : 0)));
-  setT(els.latTotal, lat.total === null ? '—' : '≈ ' + fmtInt(lat.total) + ' ms'); setA(els.latTotal, 'data-g', G('total', s.gTotal));
+  setT(els.latTotal, lat.total === null ? '—' : '≈' + fmtInt(lat.total) + ' ms'); setA(els.latTotal, 'data-g', G('total', s.gTotal));
   const legend = [[lat.rtt, 'rtt', s.gRtt], [lat.buffer, 'buf', s.gBuf], [lat.decode, 'dec', s.gDec], [s.gpu, 'gpu', s.gGpu], [s.fl ? s.fl.extraMs : null, 'wait', s.gWait]];
   legend.forEach(([v, key, g], i) => { setT(els.leg[i].v, num(v) ? fmtMs(v) + ' ms' : '—'); setA(els.leg[i].v, 'data-g', num(v) ? G(key, g) : 'none'); });
   setA(els.leg[4].row, 'data-hide', flOn ? null : '');
@@ -2110,6 +2156,11 @@ globalThis.BxShaders={"antialias": "#version 300 es\nprecision highp float;\npre
    if (fl === 'off') return {text: 'Quadros pulados antes do tratamento: a Fluidez com captura direta evita isso.', g: 'bad', a: turnOn};
    return {text: 'Quadros pulados: a GPU está sem folga. Reduza a Resolução de saída ou o limite da GPU.', g: 'bad'};
   }
+  // Frames dropped by the pacer are skipped content even when the interval on screen looks steady.
+  if (fl !== 'off' && grade('drops', s.dropRate) === 'bad') {
+   const a = valueOf('capture') === 'video' && api.directSupported() ? act('Usar captura direta', e => commit('capture', 'direct', e)) : fl === 'max' ? act('Usar Equilibrada', e => commit('fluidity', 'balanced', e)) : null;
+   return {text: `A Fluidez está descartando quadros (${fmtInt(s.dropRate)}/min): eles chegam juntos demais.`, g: 'ok', a};
+  }
   if (D === 'good' && s.p.hitches === 0) return {text: 'Ritmo estável.' + (arBad && fl !== 'off' ? ' A Fluidez está compensando a rede.' : ''), g: 'good'};
   const R = refreshNow();
   if (R > 0 && R % N) {
@@ -2153,7 +2204,7 @@ globalThis.BxShaders={"antialias": "#version 300 es\nprecision highp float;\npre
  function readSticky() {
   try {
    // The sticky game selector, plus its tips line when Better xCloud shows it (per-game profile).
-   const sel = (root.closest('.bx-settings-tab-contents') || doc).querySelector('.bx-stream-settings-selection:not(.bx-gone)');
+   const sel = els.sticky = (root.closest('.bx-settings-tab-contents') || doc).querySelector('.bx-stream-settings-selection:not(.bx-gone)');
    const tips = sel?.querySelector(':scope > p:not(.bx-gone)');
    root.style.setProperty('--bxif-sticky', (sel ? sel.offsetHeight + (tips ? tips.offsetHeight : 0) + 8 : 0) + 'px');
   } catch {}
@@ -2190,6 +2241,7 @@ globalThis.BxShaders={"antialias": "#version 300 es\nprecision highp float;\npre
   G.tick();
   runDeferred(doc.activeElement);
   const s = lastSnap = snapshot();
+  s.dropRate = drops.push(s.fl ? s.fl.dropped : null);
   if (tickN % 4 === 0 && sigOf() !== lastSig) syncAll(true);
   ensureRefreshRow(); muteNative();
   updateHeader(); updateWarnings(); updateLive(s); updateSummaries(s);
@@ -2230,11 +2282,11 @@ globalThis.BxShaders={"antialias": "#version 300 es\nprecision highp float;\npre
   io.observe(root);
  }
  // Input method: the focus ring only for keyboard/gamepad (Better xCloud sets html[data-active-input]).
- let watching = false;
+ let watching = false, lastPointer = -1e9;
  function watchInput() {
   if (watching) return;
   watching = true;
-  window.addEventListener('pointerdown', () => setNav('0'), {capture: true, passive: true});
+  window.addEventListener('pointerdown', () => { lastPointer = performance.now(); setNav('0'); }, {capture: true, passive: true});
   window.addEventListener('keydown', () => setNav('1'), true);
   try { new MutationObserver(() => setNav('1')).observe(doc.documentElement, {attributes: true, attributeFilter: ['data-active-input']}); } catch {}
   window.addEventListener('pagehide', () => { stop(); io?.disconnect(); io = null; });
@@ -2271,7 +2323,7 @@ globalThis.BxShaders={"antialias": "#version 300 es\nprecision highp float;\npre
  position:fixed;z-index:1900;display:none;box-sizing:border-box;margin:0;pointer-events:none;user-select:none;-webkit-user-select:none;
  contain:layout paint style;will-change:transform;
  padding:calc(4px*var(--s)) calc(7px*var(--s));border-radius:calc(6px*var(--s));
- background:rgba(10,11,13,.68);border:1px solid rgba(255,255,255,.08);color:#f3f5f8;text-shadow:0 1px 1px rgba(0,0,0,.7);
+ background:rgba(10,11,13,.8);border:1px solid rgba(255,255,255,.08);color:#f3f5f8;text-shadow:0 1px 1px rgba(0,0,0,.7);
  font:400 calc(11.5px*var(--s))/1 Bahnschrift,"Roboto Condensed","sans-serif-condensed","Arial Narrow",sans-serif;font-stretch:87.5%;
  font-variant-numeric:tabular-nums lining-nums;letter-spacing:normal;text-align:left;text-transform:none;white-space:nowrap}
 .bxif-hud *{box-sizing:border-box}
@@ -2279,6 +2331,8 @@ globalThis.BxShaders={"antialias": "#version 300 es\nprecision highp float;\npre
 @media (min-height:1000px){.bxif-hud{--s:1.6}}
 @media (max-height:500px){.bxif-hud{--bxif-ixl:max(8px,env(safe-area-inset-left));--bxif-ixr:max(8px,env(safe-area-inset-right));--bxif-iyt:max(8px,env(safe-area-inset-top));--bxif-iyb:max(8px,env(safe-area-inset-bottom))}}
 .bxif-hud[data-show]{display:block;animation:bxif-hud-in .15s ease-out}
+/* Overall state on the frame, apart from the FPS mark. */
+.bxif-hud[data-overall=ok]{border-color:rgba(255,214,102,.55)}.bxif-hud[data-overall=bad]{border-color:rgba(255,123,134,.7)}
 .bxif-hud[data-calm]{opacity:.6;transition:opacity .3s}
 .bxif-hud[data-hiding]{opacity:0;transition:opacity .15s}
 @keyframes bxif-hud-in{from{opacity:0}}
@@ -2293,16 +2347,16 @@ globalThis.BxShaders={"antialias": "#version 300 es\nprecision highp float;\npre
 .bxif-h-dot[data-g=bad]{background:var(--hg-bad);width:calc(8px*var(--s));border-radius:0;clip-path:polygon(50% 0,100% 100%,0 100%)}
 .bxif-h-dot[data-g=info]{background:none;box-shadow:inset 0 0 0 calc(1.75px*var(--s)) var(--hg-info)}
 .bxif-h-dot[data-g=none]{background:none;box-shadow:inset 0 0 0 calc(1.25px*var(--s)) var(--hg-none)}
-.bxif-h-k{font-size:calc(8.5px*var(--s));font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--hl)}
+.bxif-h-k{font-size:calc(9.5px*var(--s));font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--hl)}
 .bxif-h-v{font-weight:600}
-.bxif-h-s{font-size:calc(9.5px*var(--s));font-weight:500;color:var(--hl)}
+.bxif-h-s{font-size:calc(10.5px*var(--s));font-weight:500;color:var(--hl)}
 .bxif-h-fps{font-size:calc(15px*var(--s));font-weight:700;min-width:3ch;text-align:right;letter-spacing:-.01em}
-.bxif-h-tag{font-size:calc(8.5px*var(--s));font-weight:700;letter-spacing:.06em;line-height:1;padding:calc(1.5px*var(--s)) calc(3px*var(--s)) calc(1px*var(--s));border:1px solid currentColor;border-radius:calc(3px*var(--s))}
+.bxif-h-tag{font-size:calc(9.5px*var(--s));font-weight:700;letter-spacing:.06em;line-height:1;padding:calc(1.5px*var(--s)) calc(3px*var(--s)) calc(1px*var(--s));border:1px solid currentColor;border-radius:calc(3px*var(--s))}
 .bxif-h-badge{flex:none;display:inline-block;min-width:calc(14px*var(--s));height:calc(14px*var(--s));padding:0 calc(3px*var(--s));border-radius:calc(4px*var(--s));
- font-size:calc(9px*var(--s));font-weight:800;line-height:calc(14px*var(--s));text-align:center;text-shadow:none;color:#101114!important;background:var(--hg-ok)}
+ font-size:calc(10px*var(--s));font-weight:800;line-height:calc(14px*var(--s));text-align:center;text-shadow:none;color:#101114!important;background:var(--hg-ok)}
 .bxif-h-badge[data-g=bad]{background:var(--hg-bad)}.bxif-h-badge[data-g=info]{background:var(--hg-info)}
 .bxif-h-spark{display:block;flex:none}
-.bxif-h-chip{display:inline-block;font-size:calc(9px*var(--s));font-weight:700;letter-spacing:.04em;line-height:1;padding:calc(2px*var(--s)) calc(4px*var(--s));border-radius:calc(3px*var(--s));background:rgba(255,123,134,.16);color:var(--hg-bad)}
+.bxif-h-chip{display:inline-block;font-size:calc(10px*var(--s));font-weight:700;letter-spacing:.04em;line-height:1;padding:calc(2px*var(--s)) calc(4px*var(--s));border-radius:calc(3px*var(--s));background:rgba(255,123,134,.16);color:var(--hg-bad)}
 /* card (compact) */
 .bxif-h-l1,.bxif-h-l2,.bxif-h-l3{display:flex;align-items:center;gap:calc(5px*var(--s))}
 .bxif-h-l1{height:calc(18px*var(--s))}
@@ -2312,7 +2366,8 @@ globalThis.BxShaders={"antialias": "#version 300 es\nprecision highp float;\npre
 .bxif-h-l2>.bxif-h-v{text-align:right;margin-right:calc(4px*var(--s))}.bxif-h-l2>.bxif-h-v:last-child{margin-right:0}
 .bxif-h-l3{height:calc(17px*var(--s));padding-top:calc(3px*var(--s));gap:calc(4px*var(--s))}
 /* lateral (compact inside the letterbox bar) */
-.bxif-hud[data-layout=lateral]{width:var(--bxif-w,68px);padding:calc(6px*var(--s)) calc(4px*var(--s));background:rgba(10,11,13,.5);text-align:center}
+.bxif-hud[data-layout=lateral]{width:var(--bxif-w,68px);padding:calc(6px*var(--s)) calc(4px*var(--s));background:rgba(10,11,13,.55);text-align:center}
+.bxif-h-col .bxif-h-s{font-size:calc(9.5px*var(--s))}
 .bxif-hud[data-layout=lateral][data-pos$=left]{left:var(--bxif-lx,4px)}
 .bxif-hud[data-layout=lateral][data-pos$=right]{right:var(--bxif-lx,4px)}
 .bxif-hud[data-layout=lateral][data-pos^=top]{top:max(8px,env(safe-area-inset-top),var(--bxif-top,0px))}
@@ -2323,20 +2378,20 @@ globalThis.BxShaders={"antialias": "#version 300 es\nprecision highp float;\npre
 .bxif-h-col>.bxif-h-spark{height:calc(12px*var(--s));margin:calc(3px*var(--s)) 0}
 .bxif-h-col>.bxif-h-cap{margin-top:calc(3px*var(--s))}
 /* full */
-.bxif-hud[data-layout=full]{width:calc(212px*var(--s));padding:calc(6px*var(--s)) calc(8px*var(--s)) calc(4px*var(--s))}
+.bxif-hud[data-layout=full]{width:calc(236px*var(--s));padding:calc(6px*var(--s)) calc(8px*var(--s)) calc(4px*var(--s))}
 .bxif-h-head{display:flex;align-items:center;gap:calc(5px*var(--s));height:calc(18px*var(--s))}
-.bxif-h-word{flex:1;min-width:0;overflow:hidden;font-size:calc(8.5px*var(--s));font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--hg-good)}
+.bxif-h-word{flex:1;min-width:0;overflow:hidden;font-size:calc(9.5px*var(--s));font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--hg-good)}
 .bxif-h-big{font-size:calc(16px*var(--s));font-weight:700;min-width:3ch;text-align:right}
-.bxif-hud[data-layout=full] .bxif-h-spark{width:calc(196px*var(--s));height:calc(24px*var(--s));margin:calc(3px*var(--s)) 0 calc(4px*var(--s))}
+.bxif-hud[data-layout=full] .bxif-h-spark{width:calc(220px*var(--s));height:calc(24px*var(--s));margin:calc(3px*var(--s)) 0 calc(4px*var(--s))}
 .bxif-h-grp{border-top:1px solid rgba(255,255,255,.10);padding:calc(2px*var(--s)) 0}
 .bxif-h-row{display:flex;align-items:center;height:calc(14px*var(--s));min-width:0}
-.bxif-h-row>.bxif-h-k{flex:none;width:calc(50px*var(--s))}
+.bxif-h-row>.bxif-h-k{flex:none;width:calc(62px*var(--s))}
 .bxif-h-val{display:block;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis}
 .bxif-h-bar{flex:none;display:flex;gap:1px;width:calc(72px*var(--s));height:calc(5px*var(--s));margin-left:auto;border-radius:1px;overflow:hidden;background:rgba(255,255,255,.08)}
 .bxif-h-bar>i{flex:0 1 0;min-width:0}
 .bxif-h-bar>i:nth-child(1){background:#d7dbe2}.bxif-h-bar>i:nth-child(2){background:#a9afba}.bxif-h-bar>i:nth-child(3){background:#7c8391}.bxif-h-bar>i:nth-child(4){background:#565c68}
 .bxif-h-bar>i:nth-child(5){background:repeating-linear-gradient(45deg,#a9afba 0 2px,transparent 2px 4px)}
-.bxif-h-leg{display:block;height:calc(13px*var(--s));line-height:calc(13px*var(--s));padding-left:calc(50px*var(--s));font-size:calc(10px*var(--s));overflow:hidden}
+.bxif-h-leg{display:block;height:calc(13px*var(--s));line-height:calc(13px*var(--s));padding-left:calc(62px*var(--s));font-size:calc(10px*var(--s));overflow:hidden}
 .bxif-h-warn{display:flex;align-items:center;gap:calc(5px*var(--s));height:calc(17px*var(--s));min-width:0}
 .bxif-h-warn>.bxif-h-val{font-weight:500;font-size:calc(10.5px*var(--s))}
 @media (prefers-reduced-motion:reduce){.bxif-hud,.bxif-hud *{transition:none!important;animation:none!important}}
@@ -2376,7 +2431,7 @@ globalThis.BxShaders={"antialias": "#version 300 es\nprecision highp float;\npre
   el.append(E('div', 'bxif-h-l1', d.e, fps.e, lab('FPS'), tag.e, cv, badge.e), E('div', 'bxif-h-l2', lab('RIT'), rit.e, lab('TRAV'), trav.e, lab('LAT'), lat.e), l3);
   return {kind: 'card', dot: d, fps, tag, badge, cv, rit, trav, lat, chips, chipEls: chips.map(c => c.e), l3, spark: {count: 60, w: 56, h: 12}};
  }
- function buildLateral(w) {
+ function buildLateral(w, full) {
   const d = dot(), fps = field('bxif-h-fps'), tag = field('bxif-h-tag', ''), badge = field('bxif-h-badge', ''), cv = E('canvas', 'bxif-h-spark');
   const rit = field(), trav = field(), lat = field(), chips = [field('bxif-h-chip', ''), field('bxif-h-chip', '')];
   const line = (...kids) => E('div', null, ...kids), cap = text => { const e = line(lab(text)); e.className = 'bxif-h-cap'; return e; };
@@ -2384,8 +2439,17 @@ globalThis.BxShaders={"antialias": "#version 300 es\nprecision highp float;\npre
   for (const e of [...chipRows, badgeRow, tagRow]) off(e, true);
   const sw = Math.max(20, w - 12);
   cv.style.width = sw + 'px';
-  el.append(E('div', 'bxif-h-col', line(d.e, fps.e), line(lab('FPS')), cv, cap('RIT'), line(rit.e), cap('TRAV'), line(trav.e), cap('LAT'), line(lat.e), ...chipRows, badgeRow, tagRow));
-  return {kind: 'lateral', dot: d, fps, tag, badge, cv, rit, trav, lat, chips, chipEls: chipRows, badgeEl: badgeRow, tagEl: tagRow, spark: {count: 60, w: sw / s, h: 12}};
+  // Completo on the phone: the same column with every indicator, still inside the black bar.
+  let extra = null;
+  const rows = [cap('RIT'), line(rit.e)];
+  if (full) {
+   extra = {p95: field(), desc: field(), wait: field(), br: field(), qp: field(), loss: field()};
+   extra.descRows = [cap('DESC/MIN'), line(extra.desc.e)]; extra.waitRows = [cap('ESPERA'), line(extra.wait.e)];
+   rows.push(line(sub('p95 '), extra.p95.e), cap('TRAV'), line(trav.e), ...extra.descRows, ...extra.waitRows, cap('LAT'), line(lat.e),
+    cap('MB/S'), line(extra.br.e), cap('QP'), line(extra.qp.e), cap('PERDA'), line(extra.loss.e));
+  } else rows.push(cap('TRAV'), line(trav.e), cap('LAT'), line(lat.e));
+  el.append(E('div', 'bxif-h-col', line(d.e, fps.e), line(lab('FPS')), cv, ...rows, ...chipRows, badgeRow, tagRow));
+  return {kind: 'lateral', dot: d, fps, tag, badge, cv, rit, trav, lat, chips, chipEls: chipRows, badgeEl: badgeRow, tagEl: tagRow, extra, spark: {count: 60, w: sw / s, h: full ? 16 : 12}};
  }
  function buildFull() {
   const d = dot(), word = field('bxif-h-word', ''), fps = field('bxif-h-big'), cv = E('canvas', 'bxif-h-spark');
@@ -2400,15 +2464,17 @@ globalThis.BxShaders={"antialias": "#version 300 es\nprecision highp float;\npre
   const row = (k, ...kids) => E('div', 'bxif-h-row', lab(k), E('span', 'bxif-h-val', ...kids));
   const warn = E('div', 'bxif-h-grp', E('div', 'bxif-h-warn', wbadge.e, wtext.e));
   off(warn, true);
-  const legEl = E('div', 'bxif-h-leg');
+  const legEl = E('div', 'bxif-h-leg'), videoRow = row('Vídeo', vin.e, sub('→'), vout.e, sub(' · '), codec.e, sub(' · '), dec.e);
+  // Without a black bar on the phone the card stays short: no latency legend or video row.
+  if (s === 1) { off(legEl, true); off(videoRow, true); }
   for (const x of leg) legEl.append(x.k, x.v.e);
   el.append(E('div', 'bxif-h-head', d.e, word.e, fps.e, lab('FPS')), cv,
    E('div', 'bxif-h-grp', row('Ritmo', dev.e, devUnit, p95.e), row('Quadros', sub('trav '), hit.e, ...missParts, ...descParts), row('Fluidez', wait.e, capSep, cap.e)),
    E('div', 'bxif-h-grp', E('div', 'bxif-h-row', lab('Latência'), total.e, bar), legEl),
-   E('div', 'bxif-h-grp', row('Vídeo', vin.e, sub('→'), vout.e, sub(' · '), codec.e, sub(' · '), dec.e), row('Rede', br.e, sub(' Mb/s · QP '), qp.e, sub(' · '), loss.e)),
+   E('div', 'bxif-h-grp', videoRow, row('Rede', br.e, sub(' Mb/s · QP '), qp.e, sub(' · perda '), loss.e)),
    warn);
   return {kind: 'full', dot: d, word, fps, cv, dev, p95, hit, miss, missParts, desc, descParts, wait, capSep, cap, total, bar, leg, vin, vout, codec, dec, br, qp, loss, warn, wbadge, wtext,
-   spark: {count: 240, w: 196, h: 24}};
+   spark: {count: 240, w: 220, h: 24}};
  }
 
  /* ------------------------------ layout and placement ------------------------------ */
@@ -2423,7 +2489,7 @@ globalThis.BxShaders={"antialias": "#version 300 es\nprecision highp float;\npre
  }
  // Compact on the phone moves into the black bar beside a letterboxed video (16:9 or the chosen ratio).
  function lateral() {
-  if (settings.hud !== 'compact' || s !== 1) return null;
+  if (settings.hud === 'off' || s !== 1) return null;
   const pref = api.nativePref('video.ratio');
   if (pref === 'fill') return null;
   const m = /^(\d+(?:\.\d+)?):(\d+(?:\.\d+)?)$/.exec(pref || ''), ratio = m ? m[1] / m[2] : 16 / 9;
@@ -2438,12 +2504,12 @@ globalThis.BxShaders={"antialias": "#version 300 es\nprecision highp float;\npre
  function relayout() {
   layoutDirty = false;
   s = scaleNow();
-  const lat = lateral(), want = settings.hud === 'full' ? 'full' : lat ? 'lateral:' + lat.w : 'card';
+  const lat = lateral(), want = lat ? 'lateral:' + lat.w + ':' + settings.hud : settings.hud === 'full' ? 'full' : 'card';
   attr(el, 'data-mode', settings.hud); attr(el, 'data-pos', settings.hudPosition);
   if (lat) { prop(el, '--bxif-w', lat.w + 'px'); prop(el, '--bxif-lx', lat.x + 'px'); }
   if (want === built) { sizeSpark(); return; }
   built = want; el.textContent = ''; G.reset();
-  f = want === 'full' ? buildFull() : lat ? buildLateral(lat.w) : buildCard();
+  f = lat ? buildLateral(lat.w, settings.hud === 'full') : want === 'full' ? buildFull() : buildCard();
   attr(el, 'data-layout', f.kind);
   sizeSpark();
  }
@@ -2468,7 +2534,8 @@ globalThis.BxShaders={"antialias": "#version 300 es\nprecision highp float;\npre
   const x = snapshot(), on = x.on, p = x.p, w = stateWord(), net = x.net;
   const overall = G('overall', x.overall), fpsG = G('fps', x.gFpsAny), devG = on && p ? G('dev', x.gDev) : 'none', hitG = on && p ? G('hit', x.gHit) : 'none';
   const totalG = G('total', x.gTotal), missG = G('miss', x.gMiss), warnG = x.warnCount ? G('warn', x.gWarn) : 'none';
-  f.dot.set(overall);
+  f.dot.set(f.kind === 'full' ? w.grade : fpsG);
+  attr(el, 'data-overall', RANK(overall) > 1 ? overall : null);
   put(f.fps, fmtInt(x.fpsAny), fpsG);
   drawSparkline(f.cv, status.intervals, {count: f.spark.count, T: x.T, dim: !on, scale: s, ok: '#ffd666', bad: '#ff7b86'});
   const rate = drops.push(x.fl ? x.fl.dropped : null);
@@ -2481,7 +2548,16 @@ globalThis.BxShaders={"antialias": "#version 300 es\nprecision highp float;\npre
    put(f.badge, x.warnCount ? '!' + x.warnCount : '', warnG); off(f.badgeEl || f.badge.e, !x.warnCount);
    // Line 3: at most two alerts, bad ones only, in priority order. An alert needs the bad grade on two
    // ticks to appear and leaves as soon as the value is back to good (never "PERDA 0,0%" in red).
-   const alerts = [], add = (key, raw, text) => { if (G(key, raw) === 'bad' && raw !== 'good' && raw !== 'none' && alerts.length < CHIPS) alerts.push(text); };
+   const alerts = [], add = (key, raw, text) => { if (!f.extra && G(key, raw) === 'bad' && raw !== 'good' && raw !== 'none' && alerts.length < CHIPS) alerts.push(text); };
+   if (f.extra) {
+    const e = f.extra, flOn = settings.fluidity !== 'off';
+    put(e.p95, on && p ? fmtMs(p.p95Ms) : '—', on && p ? G('p95', x.gP95) : 'none');
+    for (const r of [...e.descRows, ...e.waitRows]) off(r, !flOn);
+    if (flOn) { put(e.desc, num(rate) ? fmtInt(rate) : '—', G('drops', grade('drops', rate))); put(e.wait, x.fl && num(x.fl.extraMs) ? '+' + fmtMs(x.fl.extraMs) : '—', G('wait', x.gWait)); }
+    put(e.br, num(net?.bitrateMbps) ? fmt(net.bitrateMbps, 1) : '—', G('bitrate', x.gBitrate));
+    put(e.qp, fmtInt(x.qp), G('qp', x.gQp));
+    put(e.loss, num(net?.lossPct) ? fmt(net.lossPct, 1) + '%' : '—', G('loss', x.gLoss));
+   }
    add('miss', x.gMiss, 'PUL ' + x.missed);
    add('loss', x.gLoss, 'PERDA ' + fmt(net?.lossPct, 1) + '%');
    add('qp', x.gQp, 'QP ' + fmtInt(x.qp));
@@ -2518,7 +2594,7 @@ globalThis.BxShaders={"antialias": "#version 300 es\nprecision highp float;\npre
    put(f.vin, inH ? inH + 'p' : '—', net?.height ? G('height', x.gHeight) : 'none');
    put(f.vout, r ? r[4] + 'p' : '—', r ? null : 'none');
    put(f.codec, net?.codec ? net.codec.split(' ')[0] : '—', null);
-   put(f.dec, net ? DEC[net.decoder] || '?' : '—', G('decoder', x.gDecoder));
+   put(f.dec, net ? DEC[net.decoder] || '—' : '—', G('decoder', x.gDecoder));
    put(f.br, num(net?.bitrateMbps) ? fmt(net.bitrateMbps, 1) : '—', G('bitrate', x.gBitrate));
    put(f.qp, fmtInt(x.qp), G('qp', x.gQp));
    put(f.loss, num(net?.lossPct) ? fmt(net.lossPct, 1) + '%' : '—', G('loss', x.gLoss));

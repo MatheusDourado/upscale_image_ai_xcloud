@@ -36,7 +36,7 @@ test('FPS cap resets after a pause and target changes without catch-up bursts',(
 function adapter(){
  const timers=new Map(),events=new Map();let id=0;
  class WebGL2Player {updateFrame(){}destroy(){}async setupShaders(){}}
- const context={WebGL2Player,window:{setInterval(fn){timers.set(++id,fn);return id;},clearInterval(id){timers.delete(id);},addEventListener(name,fn){events.set(name,fn);}},
+ const context={WebGL2Player,window:{setInterval(fn){timers.set(++id,fn);return id;},clearInterval(id){timers.delete(id);},setTimeout(){return 0;},clearTimeout(){},addEventListener(name,fn){events.set(name,fn);}},
   document:{},localStorage:{getItem:()=>null,setItem(){}},console,STATES:{currentStream:{}}};
  vm.createContext(context);
  vm.runInContext(fs.readFileSync('src/restoration-engine.js','utf8'),context);

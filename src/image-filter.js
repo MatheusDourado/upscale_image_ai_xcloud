@@ -8,7 +8,7 @@
  settings.contrast=1;settings.saturation=1;settings.shadows=0;
  const status={mode:'waiting',frames:0,lastFrame:0,resolution:'',error:'',gpuP95:null,measurement:'cadence',adaptation:'',fps:null,
   // Display intervals (ms) of the last ~8 s at 30 FPS, oldest first: the HUD's pacing graph.
-  intervals:[],net:null,warnings:[],adaptive:null,capture:{active:false,frames:0,reason:''}};
+  intervals:[],intervalsTotal:0,net:null,warnings:[],adaptive:null,capture:{active:false,frames:0,reason:''}};
  let activeEngine=null,activePlayer=null;
  // Physical pixels the video occupies on screen. The canvas CSS box is fixed by Better
  // xCloud (object-fit contain), so this does not depend on the canvas backing size.
@@ -25,7 +25,9 @@
  const api=window.BxImageFilter={settings,status,diagnostic:false,panelOpen:false,presets:BxRestoration.presets,
   // Restores the treatment; the HUD choice is a display preference and stays.
   reset(){const {hud,hudPosition}=settings;Object.assign(settings,BxRestoration.defaults,{hud,hudPosition});persist();api.diagnostic=false;activeEngine?.resetBudget();if(activePlayer){activePlayer.bxReferenceFps=null;activePlayer.bxTimes=[];activePlayer.bxCadenceMark=performance.now();}},
-  update(patch){Object.assign(settings,patch);if('capture' in patch||'fluidity' in patch)captureEpoch++;if(Object.keys(patch).some(k=>!LIVE_KEYS.has(k)))activeEngine?.resetBudget();persist();},
+  // Unchanged values are ignored: the gamepad repeats a held direction ~10 times a second, even at the ends.
+  update(patch){const changed=Object.keys(patch).filter(k=>settings[k]!==patch[k]);if(!changed.length)return;
+   Object.assign(settings,patch);if(changed.includes('capture')||changed.includes('fluidity'))captureEpoch++;if(changed.some(k=>!LIVE_KEYS.has(k)))activeEngine?.resetBudget();persist(true);},
   applyPreset(name){const p=BxRestoration.presets[name];if(p)api.update({...p.values});},
   preset:()=>BxRestoration.presetOf(settings),
   // Better xCloud keeps stream.*, server.* and userAgent.* as global prefs; video.* per stream/game.
@@ -50,7 +52,10 @@
     net:status.net&&Object.fromEntries(Object.entries(status.net).map(([k,v])=>[k,round(v)])),warnings:status.warnings.map(w=>w.text),
     preset:api.preset(),treatment:BxRestoration.normalize(settings),betterXcloud:native},null,1);},
  };
- function persist(){try{localStorage.setItem(key,JSON.stringify(BxRestoration.normalize(settings)));}catch{}smoothingTick();}
+ // Applies smoothing at once; the storage write is grouped (deferred=true) while a control is being moved.
+ let saveTimer=0;
+ function save(){saveTimer=0;try{localStorage.setItem(key,JSON.stringify(BxRestoration.normalize(settings)));}catch{}}
+ function persist(deferred){window.clearTimeout(saveTimer);if(deferred)saveTimer=window.setTimeout(save,400);else save();smoothingTick();}
  // Follow the connection independently of the renderer and whether the menu is open.
  const peer=()=>typeof STATES==='undefined'?null:STATES.currentStream?.peerConnection;
  let smoothingPeer=null,smoothingTimer=null;
@@ -93,15 +98,15 @@
  }
  const MAX_BITRATE=15360000;
  function updateWarnings(){
-  const w=[],pref=api.nativePref,net=status.net;
+  const w=[],pref=api.nativePref,net=status.net,dec=v=>v.toFixed(1).replace('.',',');
   if(pref('video.player.type')!==undefined&&pref('video.player.type')!=='webgl2')w.push({level:'error',key:'renderer',text:'Renderizador não é WebGL2: o tratamento está desligado.'});
-  const bitrate=pref('stream.video.maxBitrate');if(bitrate>0&&bitrate<MAX_BITRATE)w.push({level:'warn',key:'bitrate',text:`Bitrate máximo limitado a ${(bitrate/1024000).toFixed(1)} Mb/s no Better xCloud: use Ilimitado.`});
+  const bitrate=pref('stream.video.maxBitrate');if(bitrate>0&&bitrate<MAX_BITRATE)w.push({level:'warn',key:'bitrate',text:`Bitrate máximo limitado a ${dec(bitrate/1024000)} Mb/s no Better xCloud: use Ilimitado.`});
   const resolution=pref('stream.video.resolution');if(resolution&&!/^1080p/.test(resolution)&&resolution!=='auto')w.push({level:'warn',key:'resolution',text:'Resolução alvo abaixo de 1080p.'});
   if(net?.height&&net.height<1000)w.push({level:'warn',key:'stream',text:`O servidor está enviando ${net.height}p.`});
   if(net?.decoder==='software')w.push({level:'warn',key:'decoder',text:'Decodificação por software (CPU).'});
-  if(net?.lossPct>1)w.push({level:'warn',key:'loss',text:`Perda de pacotes de ${net.lossPct.toFixed(1)}%.`});
+  if(net?.lossPct>1)w.push({level:net.lossPct>2?'error':'warn',key:'loss',text:`Perda de pacotes de ${dec(net.lossPct)}%.`});
   // Explicit 2K/4K above the display (e.g. 1080p HDMI to a 4K TV) is scaled back down by the browser.
-  if(settings.mode==='filtered'&&['1440','2160'].includes(settings.output)&&status.display&&Number(settings.output)>status.display*1.1)w.push({level:'info',key:'output',text:`Tela em ${status.display}p: saída maior só aumenta custo. Use Automática.`});
+  if(settings.mode==='filtered'&&['1440','2160'].includes(settings.output)&&status.display&&Number(settings.output)>status.display*1.1)w.push({level:'info',key:'output',text:`Tela em ${status.display}p: saída maior só aumenta custo. Use Auto.`});
   if(status.mode==='error'&&status.error)w.push({level:'error',key:'engine',text:status.error});
   status.warnings=w;
  }
@@ -114,7 +119,7 @@
  // display time, plus the optional pacer ("Fluidez") that shows processed frames on a steady clock.
  const keep=(list,value,now)=>{list.push([now,value]);while(list.length>1&&now-list[0][0]>2000)list.shift();};
  // Records a frame shown on screen: 2 s window for the panel's pacing line, longer ring for the HUD graph.
- function shownAt(t,now){keep(t.display,now,now);if(t.lastShown!=null){status.intervals.push(now-t.lastShown);if(status.intervals.length>240)status.intervals.shift();}t.lastShown=now;}
+ function shownAt(t,now){keep(t.display,now,now);if(t.lastShown!=null){status.intervals.push(now-t.lastShown);status.intervalsTotal++;if(status.intervals.length>240)status.intervals.shift();}t.lastShown=now;}
  const statsOf=list=>BxRestoration.frameStats(list.map(e=>e[1]));
  function startTiming(player){
   if(player.bxTiming)return;
