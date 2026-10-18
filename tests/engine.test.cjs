@@ -239,3 +239,19 @@ test('measurement keeps display, arrival, server and wait intervals per segment,
  assert.equal(row.rttMs,20.46);assert.equal(row.qp,null);assert.equal(row.capture,'direct');assert.equal(row.bad,null);assert.equal(row.missing,null);assert.ok(Number.isFinite(row.t));
  d.start();assert.equal(d.report().timeline.length,0);assert.equal(d.report().segments.length,0);
 });
+test('measurement summaries cover long sessions and the export keeps sample arrays on one line',()=>{
+ const context={globalThis:{}};vm.runInNewContext(fs.readFileSync('src/restoration-engine.js','utf8'),context);const a=context.globalThis.BxRestoration;
+ const d=a.createDiagnostics();d.start();d.frame({},0);
+ for(let i=0;i<310000;i++)d.interval('display',i%100?16.7:33.4);
+ for(let i=0;i<10;i++)d.interval('wait',i);d.skipped(2);d.skipped(0);for(let i=0;i<3601;i++)d.timeline({fpsReceived:60,bitsPerPixel:.123456});
+ const r=d.report(),seg=r.segments[0],x=seg.display;
+ assert.equal(x.count,310000);assert.equal(x.samplesMs.length,300000);assert.equal(x.samplesTruncated,true);assert.equal(x.p50,16.7);assert.equal(x.p99,16.7);assert.equal(x.maxMs,33.4);assert.equal(x.hitches,3100);
+ assert.ok(Math.abs(x.meanMs-(16.7*.99+33.4*.01))<1e-6);assert.ok(Math.abs(x.deviationMs-Math.sqrt(.99*.01)*16.7)<1e-6);
+ assert.equal(seg.wait.count,10,'summaries continue after the raw cap');assert.equal(seg.wait.samplesTruncated,true);assert.equal(seg.wait.hitches,null);assert.equal(seg.wait.p50,4);
+ assert.equal(r.truncated,true);assert.equal(seg.videoSkipped,2);assert.equal(r.timeline.length,3600);assert.equal(r.timeline[0].bitsPerPixel,.1235);
+ let saved=null;context.globalThis.BxAndroid={saveFile:(name,mime,text)=>{saved={name,mime,text};return 'Downloads/xCloud ImageFilter/'+name;}};
+ const small=a.createDiagnostics();small.start();small.frame({},0);for(const v of [16.7,16.6,33.3])small.interval('display',v);
+ assert.equal(a.downloadReport(small.report()),'Downloads/xCloud ImageFilter/'+saved.name);
+ assert.match(saved.name,/^bx-v9\.7\.1-diagnostics-\d+\.json$/);assert.match(saved.text,/"samplesMs": \[16\.7,16\.6,33\.3\]/);assert.match(saved.text,/"samplesMs": \[\]/);
+ const back=JSON.parse(saved.text);assert.equal(back.segments[0].display.count,3);assert.equal(back.truncated,false);assert.equal(back.sampleLimit.intervals,300000);
+});

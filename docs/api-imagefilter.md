@@ -44,7 +44,7 @@ Objeto vivo, normalizado por `BxRestoration.normalize` (`src/restoration-engine.
 - `pacing` — ritmo na tela (2 s): `{meanMs, deviationMs, p95Ms, hitches, frames}`.
 - `intervals` — intervalos entre quadros exibidos (ms), últimos 240, para gráficos.
 - `intervalsTotal` — contador monotônico de intervalos registrados (muda a cada quadro exibido; serve de assinatura para redesenhar gráficos).
-- `origin` — `{server, arrival}` (como `pacing`), `presented`, `missed` (quadros pulados antes do tratamento em 2 s).
+- `origin` — `{server, arrival}` (como `pacing`), `arrivalNetwork`, `presented`, `missed` (quadros pulados antes do tratamento em 2 s). Na captura direta sem `VideoFrame.metadata().receiveTime`, `arrival` é a entrega do quadro ao script (inclui decodificação e atrasos da thread principal) e `arrivalNetwork` é `false`: o painel não o classifica como rede.
 - `fluidity` — `{mode, extraMs, dropped}` ou `null`.
 - `capture` — `{active, frames, reason}`: captura direta em uso, quadros recebidos dela, motivo de fallback.
 - `smoothing` — `{requestedMs, state, ...}` (`waiting`, `unsupported`, `requested`, `partial`, `error`).
@@ -60,13 +60,16 @@ Arquivo `bx-v9.7.1-diagnostics-<timestamp>.json`. No app Android vai para Downlo
 
 - `metadata`: `userAgent`, `renderer`, `timer` (cronômetro de GPU), `gpuMethod` (`timer`, `fence` ou `null`), `floatTargets`, `screen` (`width`, `height`, `dpr`, `refreshPref` do app), `refreshMeasuredHz` (mediana de 30 quadros de animação no início), `app`, `betterXcloud` (preferências do stream), `capture`, `smoothing`, `initial` (contadores do vídeo e do WebRTC).
 - `segments`: um por configuração distinta (voltar a uma configuração continua o segmento). Campos de cada um:
-  - `config`, `frames`, `durationMs`, `drawFps` e `pacerDropped` (quadros descartados pela Fluidez);
+  - `config`, `frames`, `durationMs`, `drawFps`, `pacerDropped` (quadros descartados pela Fluidez) e `videoSkipped` (quadros que o `<video>` não apresentou, no caminho de vídeo);
   - `gpu` (`{count, p50, p95, p99, samplesMs}`; com `gpuMethod: 'fence'`, as amostras são o tempo até concluir);
-  - intervalos, cada um com `{count, meanMs, p50, p95, p99, maxMs, deviationMs, hitches, samplesMs}` (`hitches`: intervalos acima de 1,5× a mediana):
+  - intervalos, cada um com `{count, meanMs, p50, p95, p99, maxMs, deviationMs, hitches, samplesMs, samplesTruncated}`:
+    - contagem, média, desvio e máximo são exatos; os percentis vêm de faixas de 0,1 ms;
+    - `hitches` conta intervalos acima de 1,5× a mediana e é `null` em `wait`;
+    - intervalos que atravessam a página oculta (troca de app) ficam de fora;
     - `display`: entre quadros exibidos;
-    - `arrival`: entre quadros chegando ao tratamento;
+    - `arrival`: entre quadros chegando ao tratamento (veja `origin.arrivalNetwork`);
     - `server`: entre os tempos de captura no servidor (RTP no vídeo, timestamp do `VideoFrame` na captura direta);
     - `wait`: espera de cada quadro na Fluidez.
 - `timeline`: uma linha por segundo, até 1 hora. Campos: `t` (s desde o início), `fpsReceived`, `fpsShown`, `bitrateMbps`, `lossPct`, `rttMs`, `decodeMs`, `bufferMs`, `qp`, `bitsPerPixel`, `level`, `gpuMs`, `waitMs`, `decoderDropped`, `freezes` e `capture` (`direct`/`video`).
 - `final` (contadores no fim), `net` e `status` (`capture`, `fluidity`, `adaptive`, `smoothing`, `pacing`, `origin`, `gpuP95`, `gpuEstimate`, `warnings`).
-- Até 300 mil amostras no total (`truncated` indica o corte) e 256 configurações.
+- Limites (`sampleLimit`): até 300 mil amostras brutas de intervalos no total, 120 mil de GPU, 3.600 linhas na linha do tempo e 256 configurações. Os resumos continuam além do corte; `truncated` indica que algum limite foi atingido.

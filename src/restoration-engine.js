@@ -76,42 +76,56 @@
     // One segment per distinct configuration: returning to an earlier one (e.g. the adaptive QP level)
     // continues its segment, with time counted only while it is current. Besides the GPU time, each
     // segment keeps the intervals between frames shown (display), reaching the treatment (arrival) and
-    // captured by the server (server), the Fluidez wait per frame and its drops; the report adds a
-    // per-second stream timeline, so pacing can be read from the file, not only the average FPS.
-    let recording=false,segments=[],byKey=new Map(),current=null,count=0,disjoints=0,started=null,ended=null,stopReason=null,metadata={},timeline=[];
-    const LIMIT=300000,INTERVALS=['display','arrival','server','wait'];
+    // captured by the server (server), the Fluidez wait per frame, its drops and the frames the <video>
+    // element skipped; the report adds a per-second stream timeline, so pacing can be read from the
+    // file, not only the average FPS.
+    let recording=false,segments=[],byKey=new Map(),current=null,gpuCount=0,raw=0,disjoints=0,started=null,ended=null,stopReason=null,metadata={},timeline=[],timelineCut=false;
+    const GPU_LIMIT=120000,RAW_LIMIT=300000,TIMELINE_LIMIT=3600,INTERVALS=['display','arrival','server','wait'];
     const percentile=(a,p)=>a.length?a[Math.ceil(a.length*p)-1]:null,round=v=>Math.round(v*100)/100;
-    // Hitches: intervals over 1.5x the median, i.e. a frame shown late.
-    function summary(values){const n=values.length,sorted=[...values].sort((a,b)=>a-b),mean=n?values.reduce((a,b)=>a+b,0)/n:null,median=percentile(sorted,.5);
-      return {count:n,meanMs:mean,p50:median,p95:percentile(sorted,.95),p99:percentile(sorted,.99),maxMs:n?sorted[n-1]:null,
-        deviationMs:n?Math.sqrt(values.reduce((a,b)=>a+(b-mean)**2,0)/n):null,hitches:n?values.filter(v=>v>median*1.5).length:0,samplesMs:values.map(round)};}
+    // Interval series: count, mean, deviation and maximum are exact and percentiles come from 0.1 ms bins,
+    // so the summary covers the whole segment however long; only the raw samples stop at RAW_LIMIT in
+    // total (samplesTruncated).
+    const series=()=>({n:0,sum:0,sq:0,max:null,bins:new Map(),samples:[],cut:false});
+    function push(x,v){x.n++;x.sum+=v;x.sq+=v*v;if(x.max===null||v>x.max)x.max=v;const b=Math.round(v*10);x.bins.set(b,(x.bins.get(b)||0)+1);
+      if(raw<RAW_LIMIT){x.samples.push(round(v));raw++;}else x.cut=true;}
+    // Hitches (display/arrival/server): intervals over 1.5x the median, i.e. a frame shown late. Not for waits.
+    function summary(x,hitches=true){
+      if(!x.n)return {count:0,meanMs:null,p50:null,p95:null,p99:null,maxMs:null,deviationMs:null,hitches:hitches?0:null,samplesMs:[],samplesTruncated:false};
+      const bins=[...x.bins].sort((a,b)=>a[0]-b[0]),mean=x.sum/x.n;
+      const at=p=>{const rank=Math.ceil(x.n*p);let acc=0;for(const [b,c] of bins){acc+=c;if(acc>=rank)return b/10;}return bins[bins.length-1][0]/10;};
+      const median=at(.5);
+      return {count:x.n,meanMs:mean,p50:median,p95:at(.95),p99:at(.99),maxMs:x.max,deviationMs:Math.sqrt(Math.max(0,x.sq/x.n-mean*mean)),
+        hitches:hitches?bins.reduce((a,[b,c])=>b/10>median*1.5?a+c:a,0):null,samplesMs:x.samples,samplesTruncated:x.cut};}
     return {
       get active(){return recording;},get startedAt(){return started;},
-      start(meta={}){recording=true;segments=[];byKey=new Map();current=null;count=0;disjoints=0;started=Date.now();ended=null;stopReason=null;metadata=meta;timeline=[];},
+      start(meta={}){recording=true;segments=[];byKey=new Map();current=null;gpuCount=raw=0;disjoints=0;started=Date.now();ended=null;stopReason=null;metadata=meta;timeline=[];timelineCut=false;},
       stop(reason=null){if(!recording)return;recording=false;ended=Date.now();stopReason=reason;},
       frame(config,time){if(!recording)return null;const key=JSON.stringify(config);
         if(current?.key!==key){if(current)current.activeMs+=current.last-current.since;
           let segment=byKey.get(key);
-          if(!segment){if(segments.length>=256){this.stop('limite de 256 configurações');return null;}segment={key,config,frames:0,visits:0,activeMs:0,since:time,last:time,dropped:0,gpu:[],display:[],arrival:[],server:[],wait:[]};segments.push(segment);byKey.set(key,segment);}
+          if(!segment){if(segments.length>=256){this.stop('limite de 256 configurações');return null;}
+            segment={key,config,frames:0,visits:0,activeMs:0,since:time,last:time,dropped:0,skipped:0,gpu:[],display:series(),arrival:series(),server:series(),wait:series()};segments.push(segment);byKey.set(key,segment);}
           segment.visits++;segment.since=segment.last=time;current=segment;}
         current.frames++;current.last=time;return current;
       },
       sample(segment,ms){if(!segment||!segments.includes(segment)||!Number.isFinite(ms)||ms<0)return;
-        if(count>=LIMIT)return;segment.gpu.push(ms);count++;
+        if(gpuCount>=GPU_LIMIT)return;segment.gpu.push(ms);gpuCount++;
       },
       // Interval (ms) of the configuration being rendered: 'display', 'arrival', 'server' or 'wait'.
-      interval(kind,ms){if(!recording||!current||!INTERVALS.includes(kind)||!Number.isFinite(ms)||ms<0||count>=LIMIT)return;current[kind].push(ms);count++;},
+      interval(kind,ms){if(!recording||!current||!INTERVALS.includes(kind)||!Number.isFinite(ms)||ms<0)return;push(current[kind],ms);},
       dropped(n){if(recording&&current&&n>0)current.dropped+=n;},
+      skipped(n){if(recording&&current&&n>0)current.skipped+=n;},
       // One row per second of stream telemetry, t in seconds since the start; at most an hour.
-      timeline(entry){if(!recording||timeline.length>=3600)return;const row={t:round((Date.now()-started)/1000)};
-        for(const [k,v] of Object.entries(entry))row[k]=typeof v==='number'?(Number.isFinite(v)?round(v):null):v??null;timeline.push(row);},
+      timeline(entry){if(!recording)return;if(timeline.length>=TIMELINE_LIMIT){timelineCut=true;return;}const row={t:round((Date.now()-started)/1000)};
+        for(const [k,v] of Object.entries(entry))row[k]=typeof v==='number'?(Number.isFinite(v)?(k==='bitsPerPixel'?Math.round(v*1e4)/1e4:round(v)):null):v??null;timeline.push(row);},
       annotate(meta){if(recording)Object.assign(metadata,meta);},
       disjoint(){if(recording)disjoints++;},
-      report(){return {schema:2,version:'9.7.1',build:globalThis.BxBuild??null,started,ended,stopReason,recording,metadata,disjoints,sampleLimit:LIMIT,truncated:count>=LIMIT||segments.length>=256,
-        segments:segments.map(segment=>{const {config,frames,visits,gpu,dropped}=segment,durationMs=segment.activeMs+(segment===current?segment.last-segment.since:0);
-          const sorted=[...gpu].sort((a,b)=>a-b);return {config,frames,durationMs,drawFps:durationMs>0?(frames-visits)*1000/durationMs:null,pacerDropped:dropped,
+      report(){return {schema:2,version:'9.7.1',build:globalThis.BxBuild??null,started,ended,stopReason,recording,metadata,disjoints,
+        sampleLimit:{gpu:GPU_LIMIT,intervals:RAW_LIMIT,timeline:TIMELINE_LIMIT},truncated:gpuCount>=GPU_LIMIT||raw>=RAW_LIMIT||timelineCut||segments.length>=256,
+        segments:segments.map(segment=>{const {config,frames,visits,gpu,dropped,skipped}=segment,durationMs=segment.activeMs+(segment===current?segment.last-segment.since:0);
+          const sorted=[...gpu].sort((a,b)=>a-b);return {config,frames,durationMs,drawFps:durationMs>0?(frames-visits)*1000/durationMs:null,pacerDropped:dropped,videoSkipped:skipped,
             gpu:{count:gpu.length,p50:percentile(sorted,.5),p95:percentile(sorted,.95),p99:percentile(sorted,.99),samplesMs:[...gpu]},
-            display:summary(segment.display),arrival:summary(segment.arrival),server:summary(segment.server),wait:summary(segment.wait)};}),
+            display:summary(segment.display),arrival:summary(segment.arrival),server:summary(segment.server),wait:summary(segment.wait,false)};}),
         timeline};}
     };
   }
@@ -269,10 +283,13 @@
     light:{label:'Leve',description:'Menos passes na GPU: saída nativa, sem degradês nem detalhe.',values:{sharpness:3,cleanup:.35,deband:0,chroma:.5,detail:0,sharpening:'usm',lumaSharpen:true,neural:0,temporal:0,antialias:0,output:'native'}},
   });
   function presetOf(settings){for(const [key,p] of Object.entries(presets))if(Object.entries(p.values).every(([k,v])=>settings[k]===v))return key;return 'custom';}
+  // Indented JSON with each samplesMs array on one line (one number per line would multiply the size).
+  function reportText(report){return JSON.stringify(report,(k,v)=>k==='samplesMs'&&Array.isArray(v)?'@@'+JSON.stringify(v)+'@@':v,2).replace(/"@@(\[[^"]*\])@@"/g,'$1');}
   // The Android app's WebView cannot download blobs: its bridge saves the file to Downloads instead.
   function downloadReport(report){const name='bx-v9.7.1-diagnostics-'+Date.now()+'.json';
-    if(typeof globalThis.BxAndroid?.saveFile==='function'){const where=globalThis.BxAndroid.saveFile(name,'application/json',JSON.stringify(report,null,2));if(where)return where;}
-    const url=URL.createObjectURL(new Blob([JSON.stringify(report,null,2)],{type:'application/json'})),a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
+    const text=reportText(report);
+    if(typeof globalThis.BxAndroid?.saveFile==='function'){const where=globalThis.BxAndroid.saveFile(name,'application/json',text);if(where)return where;}
+    const url=URL.createObjectURL(new Blob([text],{type:'application/json'})),a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
   const vertex='#version 300 es\nlayout(location=0) in vec2 position;void main(){gl_Position=vec4(position,0,1);}';
   class Engine {
     constructor(gl,shaders){
@@ -333,13 +350,14 @@
     // times it from its first command until the GPU finished it: an upper bound of the GPU time (it also
     // counts work queued before it), shown as an estimate and never used to reduce the treatment.
     startFence(start,mode,segment){const gl=this.gl,sync=gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE,0);if(!sync)return;gl.flush();
-      this.fenceAt=start;this.fence={sync,start,mode,segment,generation:this.fenceGeneration};setTimeout(()=>this.pollFence(),1);}
+      this.fenceAt=start;this.fence={sync,start,mode,segment,generation:this.fenceGeneration,checked:null};setTimeout(()=>this.pollFence(),1);}
     pollFence(){const gl=this.gl,f=this.fence;if(!f)return;
       if(gl.isContextLost()){this.fence=null;return;}
-      const now=performance.now(),signaled=gl.getSyncParameter(f.sync,gl.SYNC_STATUS)===gl.SIGNALED;
-      // A hidden page throttles timers: a late reading would measure the throttling, not the GPU.
-      if(!signaled&&now-f.start<250){setTimeout(()=>this.pollFence(),1);return;}
-      gl.deleteSync(f.sync);this.fence=null;if(!signaled)return;
+      const now=performance.now(),signaled=gl.getSyncParameter(f.sync,gl.SYNC_STATUS)===gl.SIGNALED,gap=f.checked===null?0:now-f.checked;
+      if(!signaled&&now-f.start<250){f.checked=now;setTimeout(()=>this.pollFence(),1);return;}
+      // A late reading measures the delay, not the GPU: a hidden page throttles timers, and a long task
+      // between two polls hides when the fence finished. The first poll waits for the rendering update.
+      gl.deleteSync(f.sync);this.fence=null;if(!signaled||now-f.start>=250||gap>20)return;
       const ms=now-f.start;this.diagnostics.sample(f.segment,ms);
       if(f.mode!=='filtered'||f.generation!==this.fenceGeneration)return;
       this.fenceValues.push(ms);if(this.fenceValues.length>30)this.fenceValues.shift();

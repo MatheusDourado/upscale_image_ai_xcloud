@@ -58,7 +58,7 @@
     status:{resolution:status.resolution,fps:round(status.fps),gpuP95:status.gpuP95,gpuEstimate:status.gpuEstimate,adaptation:status.adaptation,smoothing:status.smoothing,fluidity:status.fluidity,capture:status.capture,adaptive:status.adaptive},
     pacing:status.pacing&&{meanMs:round(status.pacing.meanMs),deviationMs:round(status.pacing.deviationMs),p95Ms:round(status.pacing.p95Ms),hitches:status.pacing.hitches},
     origin:o&&{server:o.server&&[round(o.server.meanMs),round(o.server.deviationMs)],arrival:o.arrival&&[round(o.arrival.meanMs),round(o.arrival.deviationMs)],missed:o.missed,presented:o.presented},
-    net:status.net&&Object.fromEntries(Object.entries(status.net).map(([k,v])=>[k,round(v)])),warnings:status.warnings.map(w=>w.text),
+    net:status.net&&Object.fromEntries(Object.entries(status.net).map(([k,v])=>[k,k==='bitsPerPixel'&&typeof v==='number'?Math.round(v*1000)/1000:round(v)])),warnings:status.warnings.map(w=>w.text),
     preset:api.preset(),treatment:BxRestoration.normalize(settings),betterXcloud:native},null,1);},
  };
  // Better xCloud settings that shape the stream, for the configuration summary and the measurement.
@@ -104,7 +104,7 @@
    const diag=activeEngine?.diagnostics;
    if(diag?.active&&d)diag.timeline({fpsReceived:d.fps,fpsShown:api.active?status.fps:null,bitrateMbps:q?.bitrateMbps,lossPct:q?.lossPct,rttMs:rtt,decodeMs:d.dtMs,bufferMs:d.jitterMs,
     qp:q?.qp,bitsPerPixel:q?.bitsPerPixel,level:status.adaptive?.level,gpuMs:status.gpuP95??status.gpuEstimate?.p95,waitMs:status.fluidity?.extraMs,
-    decoderDropped:q?.framesDropped,freezes:q?.freezes,capture:status.capture.active?'direct':'video'});
+    decoderDropped:q?.framesDropped,freezes:q?.freezes,capture:activePlayer?.bxDirect?.rendered>0?'direct':'video'});
   }catch{status.net=null;}finally{telemetryBusy=false;updateWarnings();}
  }
  // The quantizer level moves the treatment only after a sustained change: an exponential mean of
@@ -149,8 +149,12 @@
  // Frame timing per player: capture time on the server (RTP), arrival (WebRTC receive time) and
  // display time, plus the optional pacer ("Fluidez") that shows processed frames on a steady clock.
  const keep=(list,value,now)=>{list.push([now,value]);while(list.length>1&&now-list[0][0]>2000)list.shift();};
+ // While the page is hidden nothing is shown (no rAF/rVFC): an interval spanning that time measures the
+ // app switch, not the stream, and stays out of the graph and the measurement.
+ let hiddenAt=-Infinity;
+ document.addEventListener?.('visibilitychange',()=>{if(document.hidden)hiddenAt=performance.now();});
  // Records a frame shown on screen: 2 s window for the panel's pacing line, longer ring for the HUD graph.
- function shownAt(t,now,engine){keep(t.display,now,now);if(t.lastShown!=null){status.intervals.push(now-t.lastShown);status.intervalsTotal++;if(status.intervals.length>240)status.intervals.shift();engine?.diagnostics.interval('display',now-t.lastShown);}t.lastShown=now;}
+ function shownAt(t,now,engine){keep(t.display,now,now);if(t.lastShown!=null&&t.lastShown>hiddenAt){status.intervals.push(now-t.lastShown);status.intervalsTotal++;if(status.intervals.length>240)status.intervals.shift();engine?.diagnostics.interval('display',now-t.lastShown);}t.lastShown=now;}
  const statsOf=list=>BxRestoration.frameStats(list.map(e=>e[1]));
  function startTiming(player){
   if(player.bxTiming)return;
@@ -164,7 +168,7 @@
    if(player.bxDirect?.frames>0)return;
    const at=performance.now(),presented=meta?.presentedFrames;
    // Frames the browser presented between two callbacks never reached the treatment (nor the canvas).
-   if(Number.isFinite(presented)){if(presented>t.presented)keep(t.presentedLog,presented-t.presented,at);t.presented=presented;}
+   if(Number.isFinite(presented)){if(presented>t.presented){keep(t.presentedLog,presented-t.presented,at);player.bxEngine?.diagnostics.skipped(presented-t.presented-1);}t.presented=presented;}
    const rtp=meta&&Number.isFinite(meta.rtpTimestamp)?t.clock(meta.rtpTimestamp):null,arrival=Number.isFinite(meta?.receiveTime)?meta.receiveTime:at;
    if(rtp!==null)keep(t.server,rtp,at);
    keep(t.arrival,arrival,at);origin(player,t,rtp,arrival);
@@ -174,7 +178,7 @@
  }
  // Server and arrival intervals for the measurement, from the frames reaching the treatment.
  function origin(player,t,server,arrival){const diag=player.bxEngine?.diagnostics;
-  if(diag?.active){if(server!==null&&t.lastServer!=null)diag.interval('server',server-t.lastServer);if(t.lastArrival!=null)diag.interval('arrival',arrival-t.lastArrival);}
+  if(diag?.active&&t.lastArrival!=null&&t.lastArrival>hiddenAt){if(server!==null&&t.lastServer!=null)diag.interval('server',server-t.lastServer);diag.interval('arrival',arrival-t.lastArrival);}
   t.lastServer=server;t.lastArrival=arrival;}
  // Switching between video and direct capture changes the clocks: start the origin windows over.
  function clearOrigin(player){const t=player.bxTiming;if(!t)return;t.server.length=0;t.arrival.length=0;t.presentedLog.length=0;t.lastServer=t.lastArrival=null;t.presented=undefined;}
@@ -188,7 +192,7 @@
    t.raf=requestAnimationFrame(tick);
    const now=performance.now(),f=t.pacer.tick(now),engine=player.bxEngine;t.lastTick=now;
    const dropped=t.pacer.dropped;if(dropped>t.pacerDropped){engine?.diagnostics.dropped(dropped-t.pacerDropped);t.pacerDropped=dropped;}
-   if(f&&engine&&player.gl&&!player.gl.isContextLost()&&engine.present(f.slot)){t.shown=f.slot;shownAt(t,now,engine);engine.diagnostics.interval('wait',now-f.arrival);player.gl.useProgram(player.program);}
+   if(f&&engine&&player.gl&&!player.gl.isContextLost()&&engine.present(f.slot)){t.shown=f.slot;shownAt(t,now,engine);if(f.arrival>hiddenAt)engine.diagnostics.interval('wait',now-f.arrival);player.gl.useProgram(player.program);}
   };
   t.raf=requestAnimationFrame(tick);return t.pacer;
  }
@@ -246,7 +250,7 @@
   const now=performance.now();if(newFrame)player.bxTimes.push(now);while(player.bxTimes.length>1&&now-player.bxTimes[0]>2000)player.bxTimes.shift();
   status.fps=player.bxTimes.length>1?(player.bxTimes.length-1)*1000/(player.bxTimes.at(-1)-player.bxTimes[0]):null;status.pacing=statsOf(timing.display)||BxRestoration.frameStats(player.bxTimes);
   // With direct capture every decoded frame reaches the treatment: the video element's skips do not apply.
-  status.origin={server:statsOf(timing.server),arrival:statsOf(timing.arrival),presented:direct?null:timing.presentedLog.reduce((a,e)=>a+e[1],0),missed:direct?null:timing.presentedLog.reduce((a,e)=>a+e[1]-1,0)};
+  status.origin={server:statsOf(timing.server),arrival:statsOf(timing.arrival),arrivalNetwork:direct?!!timing.arrivalNetwork:true,presented:direct?null:timing.presentedLog.reduce((a,e)=>a+e[1],0),missed:direct?null:timing.presentedLog.reduce((a,e)=>a+e[1]-1,0)};
   status.fluidity=timing.pacer?{mode:timing.pacer.mode,extraMs:timing.pacer.extraDelayMs,dropped:timing.pacer.dropped}:null;
   if(direct)status.capture={active:true,frames:player.bxDirect.rendered,reason:''};
   if(newFrame&&now-(player.bxCadenceMark||0)>2000){
@@ -285,8 +289,11 @@
   if(!d||!player.bxEngine||player.isStopped||!player.gl||player.gl.isContextLost())return;
   const w=frame.displayWidth,h=frame.displayHeight;if(!w||!h)return;
   // Every decoded frame: capture time (VideoFrame timestamp) and arrival, before the FPS limit.
-  const at=performance.now(),ms=frame.timestamp/1000;
-  if(t){if(d.frames===1)clearOrigin(player);keep(t.server,ms,at);keep(t.arrival,at,at);origin(player,t,ms,at);}
+  // Arrival: the network receive time when the browser gives VideoFrame metadata, otherwise the delivery
+  // to this script, which adds decoding and main-thread delays (status.origin.arrivalNetwork false).
+  const at=performance.now(),ms=frame.timestamp/1000;let meta=null;try{meta=frame.metadata?.();}catch{}
+  const network=Number.isFinite(meta?.receiveTime),arrival=network?meta.receiveTime:at;
+  if(t){if(d.frames===1)clearOrigin(player);t.arrivalNetwork=network;keep(t.server,ms,at);keep(t.arrival,arrival,at);origin(player,t,ms,arrival);}
   // Nothing is shown while the page is hidden (no rAF): close frames without processing them.
   if(document.hidden||t?.pacer&&t.lastTick!=null&&performance.now()-t.lastTick>250)return;
   // Better xCloud's FPS limit, on capture time (frames may arrive bunched); same rule as shouldDraw.

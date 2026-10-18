@@ -184,7 +184,7 @@
   s.gDev = grade('dev', p?.deviationMs, s); s.gP95 = grade('p95', p?.p95Ms, s); s.gHit = grade('count', p?.hitches);
   s.missed = o && num(o.missed) ? o.missed : null;
   s.gMiss = s.missed === null ? (s.direct ? 'good' : 'none') : grade('count', s.missed);
-  s.gSrv = grade('dev', o?.server?.deviationMs, s); s.gArr = grade('dev', o?.arrival?.deviationMs, s);
+  s.gSrv = grade('dev', o?.server?.deviationMs, s); s.gArr = o && o.arrivalNetwork === false ? 'none' : grade('dev', o?.arrival?.deviationMs, s);
   s.gWait = fl ? grade('wait', fl.extraMs, s) : 'none';
   s.gRtt = grade('rtt', lat.rtt); s.gBuf = grade('buffer', lat.buffer, {r: settings.smoothing}); s.gDec = grade('decode', lat.decode);
   s.gDecoder = grade('decoder', n?.decoder); s.gTotal = grade('total', lat.total);
@@ -1028,7 +1028,7 @@
   else { setParts(s2.sum, [[(preset ? preset.label : 'Personalizado') + ' · Nitidez ' + fmt(settings.sharpness, 1), null]]); setA(s2.sum, 'data-g', null); }
   const active = TREAT.filter(k => settings[k] > 0).length;
   setParts(s3.sum, [[`${active} de 7 ativos` + (adaptiveApplying() ? ' · adaptado' : ''), null]]);
-  setParts(s4.sum, [['GPU ', null], [s.gpu === null ? '—' : fmtMs(s.gpu) + ' ms', G('gpu', s.gGpu)], [' · Lat. ', null], [s.lat.total === null ? '—' : fmtInt(s.lat.total) + ' ms', G('total', s.gTotal)]]);
+  setParts(s4.sum, [['GPU ', null], [s.gpuShow === null ? '—' : (s.gpu === null ? '≈' : '') + fmtMs(s.gpuShow) + ' ms', G(s.gpu !== null ? 'gpu' : 'gpu-est', s.gGpuShow)], [' · Lat. ', null], [s.lat.total === null ? '—' : fmtInt(s.lat.total) + ' ms', G('total', s.gTotal)]]);
   if (api.measuring) { setParts(s5.sum, [['Medindo ' + (clock() || '…'), null]]); setA(s5.sum, 'data-g', 'ok'); }
   else if (api.diagnostic) { setParts(s5.sum, [['Diagnóstico ligado', null]]); setA(s5.sum, 'data-g', 'info'); }
   else { setParts(s5.sum, [['Indicadores: ' + ({off: 'desligados', compact: 'Compacto', full: 'Completo'}[settings.hud] || ''), null]]); setA(s5.sum, 'data-g', null); }
@@ -1119,7 +1119,7 @@
   const lat = s.lat, flOn = valueOf('fluidity') !== 'off', segs = [lat.rtt, lat.buffer, lat.decode, lat.gpu, flOn ? lat.wait : 0];
   [...els.latBar.children].forEach((sp, i) => setS(sp, 'flex-grow', String(num(segs[i]) ? Math.max(0, +segs[i].toFixed(1)) : 0)));
   setT(els.latTotal, lat.total === null ? '—' : '≈' + fmtInt(lat.total) + ' ms'); setA(els.latTotal, 'data-g', G('total', s.gTotal));
-  const legend = [[lat.rtt, 'rtt', s.gRtt], [lat.buffer, 'buf', s.gBuf], [lat.decode, 'dec', s.gDec], [s.gpuShow, s.gpu !== null ? 'gpu' : 'gpu-est', s.gGpuShow], [s.fl ? s.fl.extraMs : null, 'wait', s.gWait]];
+  const legend = [[lat.rtt, 'rtt', s.gRtt], [lat.buffer, 'buf', s.gBuf], [lat.decode, 'dec', s.gDec], [s.gpu !== null ? s.gpu : s.gpuEst !== null ? lat.gpu : null, s.gpu !== null ? 'gpu' : 'gpu-est', s.gGpuShow], [s.fl ? s.fl.extraMs : null, 'wait', s.gWait]];
   legend.forEach(([v, key, g], i) => { setT(els.leg[i].v, num(v) ? fmtMs(v) + ' ms' : '—'); setA(els.leg[i].v, 'data-g', num(v) ? G(key, g) : 'none'); });
   setA(els.leg[4].row, 'data-hide', flOn ? null : '');
   const n = s.net;

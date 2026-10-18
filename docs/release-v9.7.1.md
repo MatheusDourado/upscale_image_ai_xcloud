@@ -58,9 +58,50 @@ Formato completo em [api-imagefilter.md](api-imagefilter.md#medição--relatóri
   - estado da captura e da Suavidade.
 
   O estado final inclui o ritmo, a origem e os avisos.
-- Na captura direta, o painel passa a ler o ritmo do servidor e da chegada pelos próprios quadros (timestamps do `VideoFrame`). Antes vinha do elemento de vídeo, que não vê os quadros que chegam juntos. Ao trocar entre vídeo e captura direta, as janelas recomeçam, sem misturar relógios.
+- **Resumos sem limite de duração.** Contagem, média, desvio e máximo são exatos, e os percentis vêm de faixas de 0,1 ms. Só as amostras brutas param em 300 mil, e a GPU tem limite próprio. Uma sessão longa a 60 FPS continua com estatísticas completas em todos os segmentos.
+- **Troca de app no meio da medição:** o tempo com a página oculta não entra como intervalo de quadro.
+- **Quadros pulados pelo `<video>`** contados por segmento (`videoSkipped`), para separar irregularidade do servidor de quadros perdidos no aparelho.
+- **Arquivo:** JSON indentado, com cada lista de amostras numa linha só.
+- Na captura direta, o painel passa a ler o ritmo do servidor pelos timestamps do próprio `VideoFrame`. Antes vinha do elemento de vídeo, que não vê os quadros que chegam juntos. Ao trocar entre vídeo e captura direta, as janelas recomeçam, sem misturar relógios.
+  - A chegada usa o horário de recepção da rede quando o navegador o fornece (`VideoFrame.metadata().receiveTime`).
+  - Sem esse horário, mede a entrega do quadro ao script, que inclui decodificação e atrasos da thread principal. O painel mostra esse valor, mas não o trata como rede: um atraso do aparelho não vira a sugestão "mais buffer".
 - A telemetria também roda durante a medição, mesmo com painel, HUD e adaptação desligados.
 
 ## Validação
 
-<!-- VALIDATION -->
+- **47 testes Node.** Novos testes cobrem:
+  - bits por pixel → QP e o fallback no adaptador (percentil 80, cenas paradas, travadas e compressão alta sustentada);
+  - segmentos com intervalos, descartes e linha do tempo;
+  - resumos além do corte de 300 mil amostras;
+  - arquivo exportado pela ponte Android.
+- **117 verificações Chrome/WebGL/DOM do painel e do HUD.** Novas:
+  - estimativa pela taxa de bits marcada como estimativa;
+  - mensagem "não informa o QP";
+  - tempo de GPU estimado contra o intervalo de quadro.
+- **26 verificações num WebRTC real no Chromium.** A medição atravessa a troca vídeo → captura direta e confere:
+  - quatro séries por segmento;
+  - nenhum intervalo entre relógios diferentes;
+  - nenhum intervalo atravessando a página oculta (sem a correção, aparecia um de 1.547 ms);
+  - quadros pulados por segmento;
+  - linha do tempo do `getStats` real;
+  - método `fence` e 59,9 Hz medidos;
+  - arquivo pela ponte Android.
+- **Regressões:** 43 de pixels e 11 de movimento, inalteradas.
+- **Revisão adversarial:** três revisores independentes (medição, fence de GPU e fallback/interface), e cada achado conferido por um verificador.
+  - **Confirmados e corrigidos (6):**
+    - chegada na captura direta tratada como rede;
+    - intervalos atravessando a página oculta;
+    - leitura atrasada do fence contada como tempo de GPU;
+    - resumo da seção 04 sem a estimativa;
+    - legenda da latência com p95 enquanto a soma usava p50;
+    - bits por pixel arredondados em *Copiar configuração*.
+  - **Não confirmados, mas adotados por custo baixo:**
+    - resumos que não param no corte;
+    - quadros pulados por segmento;
+    - tremidas desligadas na espera;
+    - mais casas decimais nos bits por pixel da linha do tempo.
+- **APK:** assinado com o certificado da série 9.x; userscript embarcado conferido.
+
+As correções vêm da sessão real no Poco F7, mas a v9.7.1 ainda não rodou no aparelho. A calibração dos bits por pixel (0,12 = QP 28) é uma estimativa e deve ser revista com a próxima medição.
+
+Arquivos: `better-xcloud-image-filter.user.js` e `xcloud-imagefilter-9.7.1.apk` (instala por cima da 9.x).
