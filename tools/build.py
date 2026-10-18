@@ -58,7 +58,7 @@ source=source.replace(old,'destroy() {this.cleanUpCanvasPlayer();this.playerType
 menu='\"video.processing.sharpness\",\"video.saturation\"'
 assert source.count(menu)==1
 source=source.replace(menu,'\"video.processing.sharpness\",($parent) => {window.BxImageFilter.mountControls($parent);},\"video.saturation\"')
-source=source.replace(marker,bundle+'\n'+Path('src/frame-pacing.js').read_text()+'\n'+Path('src/image-filter.js').read_text()+'\n'+marker)
+source=source.replace(marker,bundle+'\n'+Path('src/frame-pacing.js').read_text()+'\n'+'\n'.join(Path('src/'+n).read_text() for n in ('image-filter.js','panel.js','hud.js'))+'\n'+marker)
 source=source.replace('// @name         Better xCloud','// @name         Better xCloud — Image Filter Experimental').replace('// @version      6.7.12','// @version      6.7.12-imagefilter.9.6.1')
 source='\n'.join(line for line in source.split('\n') if not line.startswith(('// @updateURL','// @downloadURL')))
 source=source.replace('// @grant        none','// @grant        none\n// @updateURL    none\n// @downloadURL  none').replace('CheckForUpdate: !0','CheckForUpdate: !1',1)
