@@ -195,3 +195,23 @@ test('compression level is neutral at QP 28 and bounded, presets are recognised'
  assert.equal(a.presetOf({...a.normalize({}),sharpness:3.5}),'custom');
  assert.equal(a.normalize({capture:'direct'}).capture,'direct');assert.equal(a.normalize({capture:'x'}).capture,'video');assert.equal(a.normalize({hud:'full',hudPosition:'bottom-right'}).hudPosition,'bottom-right');assert.equal(a.normalize({adaptive:false}).adaptive,false);
 });
+test('pacer restarts its clock when the frame source changes, so pacing keeps working',()=>{
+ // Video path: RTP clock from 0. Direct capture: VideoFrame times since boot (~2.7e6 ms).
+ for(const mode of ['balanced','max']){
+  const a=api(),p=a.createPacer(mode),leads=[];let t=0,n=0;
+  const feed=(count,clock,epoch)=>{for(let i=0;i<count;i++,n++){const capture=n*1000/30,arrival=capture+40+(n%3)*6;
+   while(t<arrival){t+=1000/120;const f=p.tick(t);if(f&&f.clock==='frame')leads.push(f.p-f.arrival);}
+   p.add({slot:'s',arrival,rtp:capture+epoch,clock});}};
+  feed(120,undefined,0);feed(120,'frame',2.7e6);
+  const clamped=leads.filter(v=>Math.abs(v-3)<1e-9).length;
+  // The latest frames of the window are scheduled at arrival + 3 ms by design; with mixed clocks all were.
+  assert.ok(leads.length>100&&clamped<leads.length/2&&Math.max(...leads)>10,`${mode}: ${clamped} of ${leads.length} frames clamped to arrival + 3 ms`);
+ }
+ const p=api().createPacer('balanced');p.add({slot:'a',arrival:0,rtp:0});p.tick(100);p.add({slot:'b',arrival:5000,rtp:4000});assert.ok(p.tick(6000),'a jump of seconds restarts instead of scheduling far away');
+});
+test('diagnostics continue a segment when a configuration returns and explain the limit',()=>{
+ const d=api().createDiagnostics();d.start();
+ for(let i=0;i<10;i++){d.frame({level:i%2},i*100);d.frame({level:i%2},i*100+50);}
+ const r=d.report();assert.equal(r.segments.length,2);assert.equal(r.segments[0].frames,10);assert.equal(r.segments[0].durationMs,250);assert.equal(r.segments[0].drawFps,20);
+ const e=api().createDiagnostics();e.start();for(let i=0;i<300;i++)e.frame({i},i);assert.equal(e.active,false);assert.match(e.report().stopReason,/limite/);
+});

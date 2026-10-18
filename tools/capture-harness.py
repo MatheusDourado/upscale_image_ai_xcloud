@@ -27,13 +27,20 @@ probe=r'''
  const viaVideo=await measure(3000);
  check(api.status.origin.missed>0,`Video path skips bunched frames (${api.status.origin.missed} of ${api.status.origin.presented} in 2 s)`);
  check(api.directSupported(),'Track processor and VideoFrame are available');
+ // Record what the pacer schedules after switching sources mid-session (same pacer, new clock).
+ const scheduled=[],add=player.bxTiming.pacer.add.bind(player.bxTiming.pacer);player.bxTiming.pacer.add=f=>{scheduled.push(f);return add(f);};
  api.update({capture:'direct'});await wait(800);
  check(api.status.capture.active&&player.bxDirect,'Direct capture starts with Fluidez on');
  const direct=await measure(3000);
+ const leads=scheduled.filter(f=>f.clock==='frame'&&f.p!=null).map(f=>f.p-f.arrival);
+ check(leads.length>40&&leads.filter(v=>Math.abs(v-3)<1e-6).length<leads.length/2,`Pacer schedules direct frames after the switch (${leads.filter(v=>Math.abs(v-3)<1e-6).length} of ${leads.length} at arrival + 3 ms)`);
  check(direct.rendered>=direct.produced*.9,`Direct capture renders every decoded frame (${direct.rendered} of ${direct.produced})`);
  check(direct.rendered/direct.produced>viaVideo.rendered/viaVideo.produced+.15,`More frames than the video path (${direct.rendered}/${direct.produced} vs ${viaVideo.rendered}/${viaVideo.produced})`);
  check(api.status.fluidity&&api.status.pacing&&api.status.origin.missed===null,'Pacer runs on capture timestamps; video-element skips no longer apply');
  check(player.gl.getError()===player.gl.NO_ERROR,'VideoFrame upload renders without GL errors');
+ // Better xCloud's FPS limit also applies to direct capture.
+ player.setTargetFps(10);const capped=await measure(2000);player.setTargetFps(60);
+ check(capped.rendered/2<=12&&capped.rendered>=10,`FPS limit of 10 applies to direct capture (${capped.rendered} in 2 s)`);
  const clone=player.bxDirect.track;api.update({capture:'video'});player.updateFrame();
  check(!player.bxDirect&&clone.readyState==='ended'&&!api.status.capture.active,'Switching back stops the cloned track');
  const viaVideoAgain=await measure(1000);check(viaVideoAgain.rendered>0,'Video path resumes');
@@ -52,6 +59,6 @@ probe=r'''
 })().catch(e=>{document.getElementById('result').textContent=JSON.stringify({error:e.message});console.error(e);});
 '''
 original=Path('script.js').read_text();a=original.index('class WebGL2Player');b=original.index('class VideoPlayer',a)
-base="\nconst prefs={'video.processing.sharpness':2,'video.processing':'cas','video.processing.mode':'performance','video.player.type':'webgl2'};function getStreamPref(key){return prefs[key]??'default';}\nclass BaseCanvasPlayer {\n constructor(type,video){this.$video=video;this.$canvas=document.createElement('canvas');this.$canvas.width=128;this.$canvas.height=96;this.$canvas.style.cssText='width:320px;height:180px';document.body.append(this.$canvas);this.options={processing:'cas',processingMode:'performance',sharpness:2,brightness:100,contrast:100,saturation:100};}\n toFilterId(){return 2;}destroy(){this.isStopped=true;}\n}\n"
+base="\nconst prefs={'video.processing.sharpness':2,'video.processing':'cas','video.processing.mode':'performance','video.player.type':'webgl2'};function getStreamPref(key){return prefs[key]??'default';}\nclass BaseCanvasPlayer {\n constructor(type,video){this.$video=video;this.$canvas=document.createElement('canvas');this.$canvas.width=128;this.$canvas.height=96;this.$canvas.style.cssText='width:320px;height:180px';document.body.append(this.$canvas);this.options={processing:'cas',processingMode:'performance',sharpness:2,brightness:100,contrast:100,saturation:100};}\n toFilterId(){return 2;}destroy(){this.isStopped=true;}setTargetFps(t){this.targetFps=t;}\n}\n"
 Path('output/playwright').mkdir(parents=True,exist_ok=True)
 Path('output/playwright/capture-harness.html').write_text('<!doctype html><meta charset="utf-8"><pre id="result">Running</pre><script src="../restoration.bundle.js"></script><script>'+base+original[a:b]+''.join(Path('src/'+n).read_text() for n in ('image-filter.js','panel.js','hud.js'))+probe+'</script>')

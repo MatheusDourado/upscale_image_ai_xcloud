@@ -60,12 +60,15 @@
  }
  // Stream telemetry for the panel, the HUD and the compression-adaptive treatment: one getStats per
  // second, only while one of them needs it.
- let telemetryBusy=false,lastRtp=null;
+ let telemetryBusy=false,lastRtp=null,telemetryPeer=null;
  async function pollTelemetry(){
   const pc=peer();
-  if(!pc?.getStats||telemetryBusy||!(api.panelOpen||settings.hud!=='off'||settings.adaptive)){if(!pc){status.net=null;lastRtp=null;}updateWarnings();return;}
+  // A new session starts from scratch: no deltas or QP level carried over from the previous game.
+  if(pc!==telemetryPeer){telemetryPeer=pc;lastRtp=null;status.net=null;status.adaptive=null;}
+  if(!pc?.getStats||telemetryBusy||!(api.panelOpen||settings.hud!=='off'||settings.adaptive)){updateWarnings();return;}
   telemetryBusy=true;
   try{let rtp=null,rtt=null;const stats=await pc.getStats();
+   if(peer()!==pc)return;
    stats.forEach(item=>{if(item.type==='inbound-rtp'&&item.kind==='video')rtp=item;
     if(item.type==='candidate-pair'&&item.nominated&&item.state==='succeeded'&&Number.isFinite(item.currentRoundTripTime))rtt=item.currentRoundTripTime*1000;});
    if(lastRtp&&rtp&&lastRtp.id!==rtp.id)lastRtp=null;
@@ -73,14 +76,15 @@
    const codec=info?.mimeType?info.mimeType.replace('video/','')+(profile?' '+profile:''):null;
    const d=BxRestoration.decoderSummary(lastRtp,rtp?{...rtp,codec}:null),q=BxRestoration.streamSummary(lastRtp,rtp);lastRtp=rtp;
    status.net=d&&{codec:d.codec,profile,fpsReceived:d.fps,decoder:d.kind,implementation:d.implementation,decodeMs:d.dtMs,bufferMs:d.jitterMs,rttMs:rtt,...q};
-   adaptToCompression(q?.qp??null);
+   adaptToCompression(q?.qp??null,q?.frames??0);
   }catch{status.net=null;}finally{telemetryBusy=false;updateWarnings();}
  }
  // The quantizer level moves the treatment only after a sustained change: an exponential mean of
- // the per-second QP, and a new level only when it moves by two steps (0.2) or more (no visible pumping).
- function adaptToCompression(qp){
-  if(!Number.isFinite(qp))return;
-  const a=status.adaptive,mean=a?.qpMean==null?qp:a.qpMean*.7+qp*.3,target=BxRestoration.compressionLevel(mean);
+ // the per-second QP, weighted by the frames behind each sample (a 2-frame keyframe second after a
+ // stall barely counts), and a new level only when it moves by two steps (0.2) or more (no pumping).
+ function adaptToCompression(qp,frames){
+  if(!Number.isFinite(qp)||!(frames>0))return;
+  const a=status.adaptive,weight=.3*Math.min(1,frames/30),mean=a?.qpMean==null?qp:a.qpMean*(1-weight)+qp*weight,target=BxRestoration.compressionLevel(mean);
   // Levels are multiples of 0.1: compare against 0.15, since 1.0-0.8 is 0.19999… in floating point.
   const level=a?.level==null||Math.abs(target-a.level)>.15?target:a.level;
   status.adaptive={qp,qpMean:mean,level,scales:BxRestoration.compressionScales(level)};
@@ -136,7 +140,7 @@
   const tick=()=>{
    if(!t.pacer||player.isStopped){t.raf=null;return;}
    t.raf=requestAnimationFrame(tick);
-   const now=performance.now(),f=t.pacer.tick(now);
+   const now=performance.now(),f=t.pacer.tick(now);t.lastTick=now;
    if(f&&player.bxEngine&&player.gl&&!player.gl.isContextLost()&&player.bxEngine.present(f.slot)){t.shown=f.slot;shownAt(t,now);player.gl.useProgram(player.program);}
   };
   t.raf=requestAnimationFrame(tick);return t.pacer;
@@ -179,7 +183,8 @@
   if(player.bxMode!==settings.mode){player.bxTimes=[];player.bxCadenceMark=performance.now();player.bxMode=settings.mode;}
   // Keep the reference cadence when the budget reduces output automatically.
   // Only user-selected output/source/FPS changes invalidate the comparison.
-  const conditions=`${w}:${h}:${settings.output}:${player.targetFps}`;
+  // The frame source too: direct capture counts every decoded frame, the video path only those it presents.
+  const conditions=`${w}:${h}:${settings.output}:${player.targetFps}:${player.bxDirect?'direct':'video'}`;
   if(player.bxConditions!==conditions){player.bxReferenceFps=null;player.bxTimes=[];player.bxCadenceMark=performance.now();player.bxConditions=conditions;}
   if(player.$canvas.width!==ow||player.$canvas.height!==oh){player.$canvas.width=ow;player.$canvas.height=oh;player.bxEngine.resetHistory();stopPacer(player);}
   return {renderSettings,shown,ow,oh};
@@ -195,7 +200,7 @@
   // With direct capture every decoded frame reaches the treatment: the video element's skips do not apply.
   status.origin={server:statsOf(timing.server),arrival:statsOf(timing.arrival),presented:direct?null:timing.presentedLog.reduce((a,e)=>a+e[1],0),missed:direct?null:timing.presentedLog.reduce((a,e)=>a+e[1]-1,0)};
   status.fluidity=timing.pacer?{mode:timing.pacer.mode,extraMs:timing.pacer.extraDelayMs,dropped:timing.pacer.dropped}:null;
-  if(direct)status.capture={active:true,frames:player.bxDirect.frames,reason:''};
+  if(direct)status.capture={active:true,frames:player.bxDirect.rendered,reason:''};
   if(newFrame&&now-(player.bxCadenceMark||0)>2000){
    if(settings.mode!=='filtered')player.bxReferenceFps=status.fps;
    else if(!player.bxEngine.ext)player.bxEngine.budget.cadence(player.bxReferenceFps,status.fps);
@@ -213,7 +218,7 @@
   let track=null,reader;
   try{track=source.clone();reader=new MediaStreamTrackProcessor({track}).readable.getReader();}
   catch(error){track?.stop();status.capture={active:false,frames:0,reason:'Indisponível: '+(error.message||error)};return false;}
-  const d=player.bxDirect={track,reader,frames:0,started:performance.now()};
+  const d=player.bxDirect={track,reader,frames:0,rendered:0,started:performance.now(),nextAt:null};
   status.capture={active:true,frames:0,reason:''};
   (async()=>{let reason='Fluxo de vídeo encerrado';
    try{for(;;){const {value,done}=await reader.read();if(done)break;
@@ -225,20 +230,29 @@
  function stopDirect(player,reason){
   const d=player.bxDirect;if(!d)return;player.bxDirect=null;
   try{d.reader.cancel().catch(()=>{});}catch{}d.track.stop();
-  status.capture={active:false,frames:d.frames,reason};
+  status.capture={active:false,frames:d.rendered,reason};
  }
  function renderDirect(player,frame){
-  if(!player.bxEngine||player.isStopped||!player.gl||player.gl.isContextLost())return;
+  const d=player.bxDirect,t=player.bxTiming;
+  if(!d||!player.bxEngine||player.isStopped||!player.gl||player.gl.isContextLost())return;
   const w=frame.displayWidth,h=frame.displayHeight;if(!w||!h)return;
+  // Nothing is shown while the page is hidden (no rAF): close frames without processing them.
+  if(document.hidden||t?.pacer&&t.lastTick!=null&&performance.now()-t.lastTick>250)return;
+  // Better xCloud's FPS limit, on capture time (frames may arrive bunched); same rule as shouldDraw.
+  const fps=player.targetFps,ms=frame.timestamp/1000;
+  if(fps<=0)return;
+  if(fps<60){const interval=1000/fps;
+   if(d.nextAt==null||ms-d.nextAt>interval)d.nextAt=ms+interval;else if(ms<d.nextAt-2)return;else d.nextAt+=interval;}
   try{
    const {renderSettings,shown,ow,oh}=frameSettings(player,w,h),timing=player.bxTiming||(startTiming(player),player.bxTiming);
-   // VideoFrame timestamps (µs) follow the capture cadence: the pacer's clock and the temporal time base.
-   const ms=frame.timestamp/1000,pacer=ensurePacer(player,settings.fluidity),slot=freeSlot(timing);
-   if(player.gl.getError!=null&&player.bxDirect?.frames<=3)player.gl.getError();
+   // VideoFrame timestamps follow the capture cadence on a monotonic clock (in Chromium, time since
+   // boot): the pacer's 'frame' clock and the temporal time base.
+   const pacer=ensurePacer(player,settings.fluidity),slot=freeSlot(timing),check=d.rendered<3;
+   if(check)player.gl.getError();
    if(!player.bxEngine.render(frame,ow,oh,renderSettings,ms/1000,api.diagnostic,slot))return;
    // Some drivers may not take a decoder frame as a texture: check the first frames once and fall back.
-   if(player.bxDirect?.frames<=3&&player.gl.getError()!==player.gl.NO_ERROR){stopDirect(player,'A GPU não aceitou o quadro direto: usando o vídeo');player.bxDirectFailed=true;return;}
-   pacer.add({slot,arrival:performance.now(),rtp:ms});
+   if(check&&player.gl.getError()!==player.gl.NO_ERROR){stopDirect(player,'A GPU não aceitou o quadro direto: usando o vídeo');player.bxDirectFailed=true;return;}
+   d.rendered++;pacer.add({slot,arrival:performance.now(),rtp:ms,clock:'frame'});
    publish(player,{w,h,ow,oh,shown,newFrame:true,timing});
   }catch(error){fail(player,error);}
   finally{if(player.gl&&!player.gl.isContextLost())player.gl.useProgram(player.program);}
@@ -250,9 +264,9 @@
   if(!want){if(player.bxDirect)stopDirect(player,'');return false;}
   if(!player.bxDirect&&!player.bxDirectFailed&&!startDirect(player)){player.bxDirectFailed=true;if(!status.capture.reason)status.capture={active:false,frames:0,reason:'Captura direta indisponível neste navegador'};}
   const d=player.bxDirect;if(!d)return false;
-  // The video keeps playing: if the track gives no frame within 2 s, fall back to it.
+  // The video path keeps rendering until the first direct frame; with none within 2 s, it stays.
   if(d.frames===0&&performance.now()-d.started>2000){stopDirect(player,'Nenhum quadro da captura direta: usando o vídeo');player.bxDirectFailed=true;return false;}
-  return true;
+  return d.frames>0;
  }
  proto.updateFrame=function(){
   if(!this.bxEngine){fallback(this);return;}

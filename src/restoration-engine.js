@@ -73,14 +73,19 @@
     if(this.over>=30){this.degrade();this.over=0;}
   }};}
   function createDiagnostics(){
-    let recording=false,segments=[],current=null,count=0,disjoints=0,started=null,ended=null,stopReason=null,metadata={};
+    // One segment per distinct configuration: returning to an earlier one (e.g. the adaptive QP level)
+    // continues its segment, with time counted only while it is current.
+    let recording=false,segments=[],byKey=new Map(),current=null,count=0,disjoints=0,started=null,ended=null,stopReason=null,metadata={};
     const percentile=(a,p)=>a.length?a[Math.ceil(a.length*p)-1]:null;
     return {
       get active(){return recording;},
-      start(meta={}){recording=true;segments=[];current=null;count=0;disjoints=0;started=Date.now();ended=null;stopReason=null;metadata=meta;},
+      start(meta={}){recording=true;segments=[];byKey=new Map();current=null;count=0;disjoints=0;started=Date.now();ended=null;stopReason=null;metadata=meta;},
       stop(reason=null){if(!recording)return;recording=false;ended=Date.now();stopReason=reason;},
       frame(config,time){if(!recording)return null;const key=JSON.stringify(config);
-        if(current?.key!==key){if(segments.length>=256){this.stop();return null;}current={key,config,frames:0,first:time,last:time,gpu:[]};segments.push(current);}
+        if(current?.key!==key){if(current)current.activeMs+=current.last-current.since;
+          let segment=byKey.get(key);
+          if(!segment){if(segments.length>=256){this.stop('limite de 256 configurações');return null;}segment={key,config,frames:0,visits:0,activeMs:0,since:time,last:time,gpu:[]};segments.push(segment);byKey.set(key,segment);}
+          segment.visits++;segment.since=segment.last=time;current=segment;}
         current.frames++;current.last=time;return current;
       },
       sample(segment,ms){if(!segment||!segments.includes(segment)||!Number.isFinite(ms)||ms<0)return;
@@ -88,7 +93,8 @@
       },
       disjoint(){if(recording)disjoints++;},
       report(){return {schema:1,version:'9.6.1',build:globalThis.BxBuild??null,started,ended,stopReason,recording,metadata,disjoints,sampleLimit:120000,truncated:count>=120000||segments.length>=256,
-        segments:segments.map(({config,frames,first,last,gpu})=>{const sorted=[...gpu].sort((a,b)=>a-b);return {config,frames,durationMs:last-first,drawFps:last>first?(frames-1)*1000/(last-first):null,gpu:{count:gpu.length,p50:percentile(sorted,.5),p95:percentile(sorted,.95),p99:percentile(sorted,.99),samplesMs:[...gpu]}};})};}
+        segments:segments.map(segment=>{const {config,frames,visits,gpu}=segment,durationMs=segment.activeMs+(segment===current?segment.last-segment.since:0);
+          const sorted=[...gpu].sort((a,b)=>a-b);return {config,frames,durationMs,drawFps:durationMs>0?(frames-visits)*1000/durationMs:null,gpu:{count:gpu.length,p50:percentile(sorted,.5),p95:percentile(sorted,.95),p99:percentile(sorted,.99),samplesMs:[...gpu]}};})};}
     };
   }
   async function captureVideoStats(video,peer){
@@ -165,12 +171,14 @@
     function updateCadence(d){if(d>2&&d<200){deltas.push(d);if(deltas.length>30)deltas.shift();}
       if(deltas.length>=5){const m=[...deltas].sort((a,b)=>a-b)[deltas.length>>1];cadence=Math.abs(m-1000/30)<2?1000/30:Math.abs(m-1000/60)<1?1000/60:m;}}
     function schedule(f){
-      const kind=f.rtp!=null?'rtp':'arrival',ref=f.rtp??f.arrival;
-      // RTP and arrival times are different clocks: switching restarts the clock-relative state.
-      if(kind!==clock){clock=kind;lastRef=grid=offset=null;transits.length=0;}
+      // Clocks: 'rtp' (rVFC RTP times, from 0), 'frame' (VideoFrame times, monotonic since boot) or
+      // 'arrival'. A change of clock, or a jump of more than a second (stall, RTP restart), restarts the
+      // clock-relative state; lastP keeps the display order.
+      const kind=f.rtp==null?'arrival':f.clock||'rtp',ref=f.rtp??f.arrival;
+      if(kind!==clock||lastRef!==null&&(ref<lastRef||ref-lastRef>1000)){clock=kind;lastRef=grid=offset=null;transits.length=0;}
       const interval=lastRef===null?null:ref-lastRef;if(interval!==null)updateCadence(interval);lastRef=ref;
       let base=null,p;
-      if(mode==='balanced'&&kind==='rtp')base=ref;
+      if(mode==='balanced'&&kind!=='arrival')base=ref;
       else if(cadence){
         // Whole periods since the last slot: a missing source frame holds the previous one for exactly
         // two. Following the clock by 5% per frame absorbs drift and filters jitter.
@@ -217,7 +225,7 @@
     const seconds=previous?(current.timestamp-previous.timestamp)/1000:0,delta=k=>previous&&Number.isFinite(current[k])&&Number.isFinite(previous[k])?current[k]-previous[k]:null;
     const bytes=delta('bytesReceived'),lost=delta('packetsLost'),received=delta('packetsReceived'),qp=delta('qpSum'),frames=delta('framesDecoded');
     return {bitrateMbps:seconds>0&&bytes>=0?bytes*8/seconds/1e6:null,lossPct:lost!==null&&received!==null&&lost+received>0?Math.max(0,lost)*100/(lost+received):null,
-      qp:qp!==null&&frames>0?qp/frames:null,framesDropped:delta('framesDropped'),freezes:delta('freezeCount'),
+      qp:qp!==null&&frames>0?qp/frames:null,frames,framesDropped:delta('framesDropped'),freezes:delta('freezeCount'),
       width:Number.isFinite(current.frameWidth)?current.frameWidth:null,height:Number.isFinite(current.frameHeight)?current.frameHeight:null};
   }
   // Compression-adaptive treatment: like a codec's deblocking filter, cleanup and debanding follow the
@@ -229,10 +237,10 @@
   // One-tap starting points. natural = v9 measured defaults (docs/analysis-v9.md); console = sharpness
   // 2 for less texture flicker (docs/analysis-v9.1.md); the others trade fidelity for a purpose.
   const presets=Object.freeze({
-    natural:{label:'Natural',description:'Padrão medido da v9: fidelidade com nitidez do render limpo.',values:{sharpness:3,cleanup:.5,deband:.3,chroma:.75,detail:.2,sharpening:'usm',lumaSharpen:true,neural:0,temporal:0,antialias:0}},
-    console:{label:'Console',description:'Nitidez 2: menos cintilação de textura, aparência de console.',values:{sharpness:2,cleanup:.5,deband:.3,chroma:.75,detail:.1,sharpening:'usm',lumaSharpen:true,neural:0,temporal:0,antialias:0}},
-    sharp:{label:'Nítido',description:'Mais contorno e textura; mais cintilação em movimento.',values:{sharpness:4.5,cleanup:.35,deband:.2,chroma:.75,detail:.35,sharpening:'usm',lumaSharpen:true,neural:0,temporal:0,antialias:0}},
-    clean:{label:'Bitrate baixo',description:'Mais limpeza de blocos e degradês para streams muito comprimidos.',values:{sharpness:2.5,cleanup:.8,deband:.6,chroma:.75,detail:.1,sharpening:'usm',lumaSharpen:true,neural:0,temporal:0,antialias:0}},
+    natural:{label:'Natural',description:'Padrão medido da v9: fidelidade com nitidez do render limpo.',values:{sharpness:3,cleanup:.5,deband:.3,chroma:.75,detail:.2,sharpening:'usm',lumaSharpen:true,neural:0,temporal:0,antialias:0,output:'auto'}},
+    console:{label:'Console',description:'Nitidez 2: menos cintilação de textura, aparência de console.',values:{sharpness:2,cleanup:.5,deband:.3,chroma:.75,detail:.1,sharpening:'usm',lumaSharpen:true,neural:0,temporal:0,antialias:0,output:'auto'}},
+    sharp:{label:'Nítido',description:'Mais contorno e textura; mais cintilação em movimento.',values:{sharpness:4.5,cleanup:.35,deband:.2,chroma:.75,detail:.35,sharpening:'usm',lumaSharpen:true,neural:0,temporal:0,antialias:0,output:'auto'}},
+    clean:{label:'Bitrate baixo',description:'Mais limpeza de blocos e degradês para streams muito comprimidos.',values:{sharpness:2.5,cleanup:.8,deband:.6,chroma:.75,detail:.1,sharpening:'usm',lumaSharpen:true,neural:0,temporal:0,antialias:0,output:'auto'}},
     light:{label:'Leve',description:'Menos passes na GPU: saída nativa, sem degradês nem detalhe.',values:{sharpness:3,cleanup:.35,deband:0,chroma:.5,detail:0,sharpening:'usm',lumaSharpen:true,neural:0,temporal:0,antialias:0,output:'native'}},
   });
   function presetOf(settings){for(const [key,p] of Object.entries(presets))if(Object.entries(p.values).every(([k,v])=>settings[k]===v))return key;return 'custom';}
@@ -307,7 +315,8 @@
       this.poll();let q=null;
       const revision=this.budget.revision;
       const filtered=s.mode==='filtered';
-      const segment=this.diagnostics.active?this.diagnostics.frame({settings:s,diagnostic,source:[w,h],output:[outW,outH],revision,effective:{neural:filtered&&this.floatTargets&&this.budget.neuralAllowed?s.neural:0,temporal:filtered&&s.temporal>0&&this.budget.temporalAllowed,cleanup:filtered&&this.budget.cleanupAllowed?s.cleanup:0,chroma:filtered&&this.budget.enhanceAllowed?s.chroma:0,detail:filtered&&this.budget.enhanceAllowed?s.detail:0,deband:filtered?s.deband*this.budget.debandScale:0,debandTaps:filtered&&s.deband>0?this.budget.debandTaps:0,antialias:filtered&&this.budget.antialiasAllowed?s.antialias:0}},performance.now()):null;
+      const {hud:_hud,hudPosition:_position,...measured}=s;
+      const segment=this.diagnostics.active?this.diagnostics.frame({settings:measured,diagnostic,source:[w,h],output:[outW,outH],revision,effective:{neural:filtered&&this.floatTargets&&this.budget.neuralAllowed?s.neural:0,temporal:filtered&&s.temporal>0&&this.budget.temporalAllowed,cleanup:filtered&&this.budget.cleanupAllowed?s.cleanup:0,chroma:filtered&&this.budget.enhanceAllowed?s.chroma:0,detail:filtered&&this.budget.enhanceAllowed?s.detail:0,deband:filtered?s.deband*this.budget.debandScale:0,debandTaps:filtered&&s.deband>0?this.budget.debandTaps:0,antialias:filtered&&this.budget.antialiasAllowed?s.antialias:0}},performance.now()):null;
       this.usedTargets=new Set();
       if(this.ext&&this.queries.length<4){q=gl.createQuery();gl.beginQuery(this.ext.TIME_ELAPSED_EXT,q);}
       try{
