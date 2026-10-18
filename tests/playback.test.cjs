@@ -66,3 +66,13 @@ test('smoothing reports missing support and receiver errors without abandoning o
  a.context.STATES.currentStream.peerConnection={getReceivers:()=>[broken,working]};a.tick();
  assert.equal(working.jitterBufferTarget,33);assert.equal(a.api.status.smoothing.failed,1);
 });
+test('compression-adaptive treatment follows a sustained QP change with hysteresis',async()=>{
+ const a=adapter();let qpSum=0,frames=0,bytes=0,t=0,qp=28;
+ const rtp=()=>({id:'v',type:'inbound-rtp',kind:'video',timestamp:t,qpSum,framesDecoded:frames,bytesReceived:bytes,packetsLost:0,packetsReceived:frames*10});
+ a.context.STATES.currentStream.peerConnection={getReceivers:()=>[],getStats:async()=>{t+=1000;frames+=30;qpSum+=qp*30;bytes+=2e6;const r=rtp();return new Map([['v',r]]);}};
+ const step=async n=>{for(let i=0;i<n;i++){a.tick();await new Promise(r=>setImmediate(r));}};
+ await step(3);assert.equal(a.api.status.adaptive.level,.5);assert.equal(a.api.status.net.bitrateMbps,16);
+ qp=29;await step(5);assert.equal(a.api.status.adaptive.level,.5,'small QP changes do not move the treatment');
+ qp=38;await step(8);assert.equal(a.api.status.adaptive.level,1);assert.ok(a.api.status.adaptive.scales.cleanup>1.3);
+ a.api.update({adaptive:false,hud:'off'});const calls=t;await step(2);assert.equal(t,calls,'no getStats while nothing needs telemetry');
+});

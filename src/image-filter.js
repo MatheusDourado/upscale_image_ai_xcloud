@@ -20,10 +20,12 @@
  }
  // Settings that do not change the processed image keep the GPU adaptation.
  const LIVE_KEYS=new Set(['mode','smoothing','hud','hudPosition']);
+ // Bumped by every capture/Fluidez change: a failed direct capture is retried after the user changes either.
+ let captureEpoch=0;
  const api=window.BxImageFilter={settings,status,diagnostic:false,panelOpen:false,presets:BxRestoration.presets,
   // Restores the treatment; the HUD choice is a display preference and stays.
   reset(){const {hud,hudPosition}=settings;Object.assign(settings,BxRestoration.defaults,{hud,hudPosition});persist();api.diagnostic=false;activeEngine?.resetBudget();if(activePlayer){activePlayer.bxReferenceFps=null;activePlayer.bxTimes=[];activePlayer.bxCadenceMark=performance.now();}},
-  update(patch){Object.assign(settings,patch);if(Object.keys(patch).some(k=>!LIVE_KEYS.has(k)))activeEngine?.resetBudget();persist();},
+  update(patch){Object.assign(settings,patch);if('capture' in patch||'fluidity' in patch)captureEpoch++;if(Object.keys(patch).some(k=>!LIVE_KEYS.has(k)))activeEngine?.resetBudget();persist();},
   applyPreset(name){const p=BxRestoration.presets[name];if(p)api.update({...p.values});},
   preset:()=>BxRestoration.presetOf(settings),
   // Better xCloud keeps stream.*, server.* and userAgent.* as global prefs; video.* per stream/game.
@@ -75,11 +77,12 @@
   }catch{status.net=null;}finally{telemetryBusy=false;updateWarnings();}
  }
  // The quantizer level moves the treatment only after a sustained change: an exponential mean of
- // the per-second QP, and a new level only when it differs by 0.2 or more (no visible pumping).
+ // the per-second QP, and a new level only when it moves by two steps (0.2) or more (no visible pumping).
  function adaptToCompression(qp){
   if(!Number.isFinite(qp))return;
   const a=status.adaptive,mean=a?.qpMean==null?qp:a.qpMean*.7+qp*.3,target=BxRestoration.compressionLevel(mean);
-  const level=a?.level==null||Math.abs(target-a.level)>=.2?target:a.level;
+  // Levels are multiples of 0.1: compare against 0.15, since 1.0-0.8 is 0.19999… in floating point.
+  const level=a?.level==null||Math.abs(target-a.level)>.15?target:a.level;
   status.adaptive={qp,qpMean:mean,level,scales:BxRestoration.compressionScales(level)};
  }
  const MAX_BITRATE=15360000;
@@ -158,11 +161,11 @@
    this.$canvas.addEventListener('webglcontextlost',lost);this.$canvas.addEventListener('webglcontextrestored',restored);
   }
  };
- proto.updateFrame=function(){
-  if(!this.bxEngine){fallback(this);return;}
-  if(this.isStopped)return;
+ // Settings for one frame: native processing mode, compression-adaptive strengths and the output
+ // resolved from the on-screen size. Also sizes the canvas (which restarts the pacer).
+ function frameSettings(player,w,h){
   const renderSettings={...settings};
-  // Sharpness comes from this panel (0–10, steps of 0.5), shared by the treatment and the CAS-only reference.
+  // Sharpness comes from this panel, shared by the treatment and the CAS-only reference.
   if(typeof getStreamPref==='function'){
    const processing=getStreamPref('video.processing'),mode=getStreamPref('video.processing.mode');
    if(['cas','usm'].includes(processing))renderSettings.processing=processing;
@@ -171,9 +174,92 @@
   // Compression-adaptive strengths (QP level from the telemetry; neutral until it is known).
   if(settings.adaptive&&settings.mode==='filtered'&&status.adaptive){const k=status.adaptive.scales;
    renderSettings.cleanup=Math.min(1,settings.cleanup*k.cleanup);renderSettings.deband=Math.min(1,settings.deband*k.deband);renderSettings.detail=Math.min(1,settings.detail*k.detail);}
+  const shown=displayHeight(player,w,h);renderSettings.output=BxRestoration.resolveOutput(settings.output,shown,h);
+  const size=player.bxEngine.outputSize(w,h,renderSettings),ow=size.width,oh=size.height;
+  if(player.bxMode!==settings.mode){player.bxTimes=[];player.bxCadenceMark=performance.now();player.bxMode=settings.mode;}
+  // Keep the reference cadence when the budget reduces output automatically.
+  // Only user-selected output/source/FPS changes invalidate the comparison.
+  const conditions=`${w}:${h}:${settings.output}:${player.targetFps}`;
+  if(player.bxConditions!==conditions){player.bxReferenceFps=null;player.bxTimes=[];player.bxCadenceMark=performance.now();player.bxConditions=conditions;}
+  if(player.$canvas.width!==ow||player.$canvas.height!==oh){player.$canvas.width=ow;player.$canvas.height=oh;player.bxEngine.resetHistory();stopPacer(player);}
+  return {renderSettings,shown,ow,oh};
+ }
+ // Status after a rendered frame; newFrame feeds the FPS and the cadence-based GPU adaptation.
+ function publish(player,{w,h,ow,oh,shown,newFrame,timing}){
+  const direct=!!player.bxDirect;
+  status.mode=api.diagnostic?'diagnostic':settings.mode;status.frames=player.bxEngine.frames;status.lastFrame=Date.now();status.resolution=`${w}×${h} → ${ow}×${oh}`;
+  status.gpuP95=player.bxEngine.budget.p95;status.measurement=player.bxEngine.ext?'gpu':'cadence';status.adaptation=player.bxEngine.budget.reason;
+  status.display=shown;
+  const now=performance.now();if(newFrame)player.bxTimes.push(now);while(player.bxTimes.length>1&&now-player.bxTimes[0]>2000)player.bxTimes.shift();
+  status.fps=player.bxTimes.length>1?(player.bxTimes.length-1)*1000/(player.bxTimes.at(-1)-player.bxTimes[0]):null;status.pacing=statsOf(timing.display)||BxRestoration.frameStats(player.bxTimes);
+  // With direct capture every decoded frame reaches the treatment: the video element's skips do not apply.
+  status.origin={server:statsOf(timing.server),arrival:statsOf(timing.arrival),presented:direct?null:timing.presentedLog.reduce((a,e)=>a+e[1],0),missed:direct?null:timing.presentedLog.reduce((a,e)=>a+e[1]-1,0)};
+  status.fluidity=timing.pacer?{mode:timing.pacer.mode,extraMs:timing.pacer.extraDelayMs,dropped:timing.pacer.dropped}:null;
+  if(direct)status.capture={active:true,frames:player.bxDirect.frames,reason:''};
+  if(newFrame&&now-(player.bxCadenceMark||0)>2000){
+   if(settings.mode!=='filtered')player.bxReferenceFps=status.fps;
+   else if(!player.bxEngine.ext)player.bxEngine.budget.cadence(player.bxReferenceFps,status.fps);
+   player.bxCadenceMark=now;
+  }
+ }
+ function fail(player,error){status.mode='error';status.error=String(error.message||error);stopDirect(player,'Erro no tratamento');stopPacer(player);player.bxEngine.destroy();player.bxEngine=null;activeEngine=null;fallback(player);}
+ // Direct capture (Fluidez only): the <video> element shows at most one frame per display refresh, so
+ // frames arriving together are skipped before the treatment sees them. Reading the WebRTC track with
+ // MediaStreamTrackProcessor delivers every decoded frame; each VideoFrame is processed into a paced
+ // texture and closed at once, so the hardware decoder never waits for the pacer.
+ function startDirect(player){
+  const source=player.$video?.srcObject?.getVideoTracks?.()[0];
+  if(!source||source.readyState!=='live'||!api.directSupported())return false;
+  let track=null,reader;
+  try{track=source.clone();reader=new MediaStreamTrackProcessor({track}).readable.getReader();}
+  catch(error){track?.stop();status.capture={active:false,frames:0,reason:'Indisponível: '+(error.message||error)};return false;}
+  const d=player.bxDirect={track,reader,frames:0,started:performance.now()};
+  status.capture={active:true,frames:0,reason:''};
+  (async()=>{let reason='Fluxo de vídeo encerrado';
+   try{for(;;){const {value,done}=await reader.read();if(done)break;
+     try{if(player.bxDirect!==d)break;d.frames++;renderDirect(player,value);}finally{value.close();}}}
+   catch(error){reason=String(error?.message||error);}
+   finally{if(player.bxDirect===d)stopDirect(player,reason);}})();
+  return true;
+ }
+ function stopDirect(player,reason){
+  const d=player.bxDirect;if(!d)return;player.bxDirect=null;
+  try{d.reader.cancel().catch(()=>{});}catch{}d.track.stop();
+  status.capture={active:false,frames:d.frames,reason};
+ }
+ function renderDirect(player,frame){
+  if(!player.bxEngine||player.isStopped||!player.gl||player.gl.isContextLost())return;
+  const w=frame.displayWidth,h=frame.displayHeight;if(!w||!h)return;
+  try{
+   const {renderSettings,shown,ow,oh}=frameSettings(player,w,h),timing=player.bxTiming||(startTiming(player),player.bxTiming);
+   // VideoFrame timestamps (µs) follow the capture cadence: the pacer's clock and the temporal time base.
+   const ms=frame.timestamp/1000,pacer=ensurePacer(player,settings.fluidity),slot=freeSlot(timing);
+   if(player.gl.getError!=null&&player.bxDirect?.frames<=3)player.gl.getError();
+   if(!player.bxEngine.render(frame,ow,oh,renderSettings,ms/1000,api.diagnostic,slot))return;
+   // Some drivers may not take a decoder frame as a texture: check the first frames once and fall back.
+   if(player.bxDirect?.frames<=3&&player.gl.getError()!==player.gl.NO_ERROR){stopDirect(player,'A GPU não aceitou o quadro direto: usando o vídeo');player.bxDirectFailed=true;return;}
+   pacer.add({slot,arrival:performance.now(),rtp:ms});
+   publish(player,{w,h,ow,oh,shown,newFrame:true,timing});
+  }catch(error){fail(player,error);}
+  finally{if(player.gl&&!player.gl.isContextLost())player.gl.useProgram(player.program);}
+ }
+ // Starts, keeps or stops direct capture for the current settings; true while it renders the frames.
+ function directCapture(player){
+  const want=settings.fluidity!=='off'&&settings.capture==='direct';
+  if(player.bxCaptureEpoch!==captureEpoch){player.bxCaptureEpoch=captureEpoch;player.bxDirectFailed=false;}
+  if(!want){if(player.bxDirect)stopDirect(player,'');return false;}
+  if(!player.bxDirect&&!player.bxDirectFailed&&!startDirect(player)){player.bxDirectFailed=true;if(!status.capture.reason)status.capture={active:false,frames:0,reason:'Captura direta indisponível neste navegador'};}
+  const d=player.bxDirect;if(!d)return false;
+  // The video keeps playing: if the track gives no frame within 2 s, fall back to it.
+  if(d.frames===0&&performance.now()-d.started>2000){stopDirect(player,'Nenhum quadro da captura direta: usando o vídeo');player.bxDirectFailed=true;return false;}
+  return true;
+ }
+ proto.updateFrame=function(){
+  if(!this.bxEngine){fallback(this);return;}
+  if(this.isStopped)return;
+  if(directCapture(this))return;
   const video=this.$video,w=video.videoWidth||video.width,h=video.videoHeight||video.height;
   if(!w||!h)return;
-  const shown=displayHeight(this,w,h);renderSettings.output=BxRestoration.resolveOutput(settings.output,shown,h);
   const time=Number.isFinite(video.currentTime)?video.currentTime:performance.now()/1000;
   const count=video.getVideoPlaybackQuality?.().totalVideoFrames;
   // WebRTC counts totalVideoFrames on arrival, so a frame that arrived before the previous
@@ -182,15 +268,9 @@
   const presented=this.bxTiming?.presented,id=Number.isFinite(presented)?presented+'/':'';
   const token=count>0?`${id}${count}:${w}:${h}`:`${id}${time}:${w}:${h}`;
   const newFrame=this.bxLastFrame!==token;
-  const size=this.bxEngine.outputSize(w,h,renderSettings),ow=size.width,oh=size.height;
+  const {renderSettings,shown,ow,oh}=frameSettings(this,w,h);
   const controls=JSON.stringify(renderSettings)+api.diagnostic+':'+this.bxEngine.budget.revision;
-  if(this.bxMode!==settings.mode){this.bxTimes=[];this.bxCadenceMark=performance.now();this.bxMode=settings.mode;}
   if(this.bxLastFrame===token&&this.bxLastSettings===controls){this.bxEngine.poll();return;}
-  // Keep the reference cadence when the budget reduces output automatically.
-  // Only user-selected output/source/FPS changes invalidate the comparison.
-  const conditions=`${w}:${h}:${settings.output}:${this.targetFps}`;
-  if(this.bxConditions!==conditions){this.bxReferenceFps=null;this.bxTimes=[];this.bxCadenceMark=performance.now();this.bxConditions=conditions;}
-  if(this.$canvas.width!==ow||this.$canvas.height!==oh){this.$canvas.width=ow;this.$canvas.height=oh;this.bxEngine.resetHistory();stopPacer(this);}
   try{
    const timing=this.bxTiming||(startTiming(this),this.bxTiming);
    if(settings.fluidity!=='off'){
@@ -206,21 +286,12 @@
     if(newFrame)shownAt(timing,performance.now());
    }
    this.bxLastFrame=token;this.bxLastSettings=controls;
-   status.mode=api.diagnostic?'diagnostic':settings.mode;status.frames=this.bxEngine.frames;status.lastFrame=Date.now();status.resolution=`${w}×${h} → ${ow}×${oh}`;
-   status.gpuP95=this.bxEngine.budget.p95;status.measurement=this.bxEngine.ext?'gpu':'cadence';status.adaptation=this.bxEngine.budget.reason;
-   status.display=shown;
-   const now=performance.now();if(newFrame)this.bxTimes.push(now);while(this.bxTimes.length>1&&now-this.bxTimes[0]>2000)this.bxTimes.shift();
-   status.fps=this.bxTimes.length>1?(this.bxTimes.length-1)*1000/(this.bxTimes.at(-1)-this.bxTimes[0]):null;status.pacing=statsOf(timing.display)||BxRestoration.frameStats(this.bxTimes);status.origin={server:statsOf(timing.server),arrival:statsOf(timing.arrival),presented:timing.presentedLog.reduce((a,e)=>a+e[1],0),missed:timing.presentedLog.reduce((a,e)=>a+e[1]-1,0)};status.fluidity=timing.pacer?{mode:timing.pacer.mode,extraMs:timing.pacer.extraDelayMs,dropped:timing.pacer.dropped}:null;
-   if(newFrame&&now-(this.bxCadenceMark||0)>2000){
-    if(settings.mode!=='filtered')this.bxReferenceFps=status.fps;
-    else if(!this.bxEngine.ext)this.bxEngine.budget.cadence(this.bxReferenceFps,status.fps);
-    this.bxCadenceMark=now;
-   }
-  }catch(error){status.mode='error';status.error=String(error.message||error);stopPacer(this);this.bxEngine.destroy();this.bxEngine=null;activeEngine=null;fallback(this);}
+   publish(this,{w,h,ow,oh,shown,newFrame,timing});
+  }catch(error){fail(this,error);}
   finally{if(this.gl&&!this.gl.isContextLost())this.gl.useProgram(this.program);}
  };
  proto.destroy=function(){
-  stopTiming(this);
+  stopDirect(this,'');stopTiming(this);
   if(activePlayer===this)activePlayer=null;if(activeEngine===this.bxEngine)activeEngine=null;this.bxEngine?.destroy();this.bxEngine=null;
   if(this.bxListeners){const {reset,lost,restored}=this.bxListeners;for(const name of ['seeking','pause','emptied'])this.$video.removeEventListener(name,reset);this.$canvas.removeEventListener('webglcontextlost',lost);this.$canvas.removeEventListener('webglcontextrestored',restored);this.bxListeners=null;}
   status.mode='waiting';status.lastFrame=0;api.diagnostic=false;destroy.call(this);

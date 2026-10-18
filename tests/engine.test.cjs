@@ -180,3 +180,18 @@ test('max pacer locks to 30 FPS despite missing frames and its delay shrinks aft
  // Calm stream: frames keep whole 30 FPS periods (a missing frame is held for two), none shown early.
  const late=shown.filter(([t])=>t>20000).map(e=>e[0]);for(let k=1;k<late.length;k++)assert.ok(late[k]-late[k-1]>30,'interval '+(late[k]-late[k-1]));
 });
+test('stream summary reports bitrate, loss and mean QP between two snapshots',()=>{
+ const a=api(),prev={timestamp:1000,bytesReceived:0,packetsLost:5,packetsReceived:1000,qpSum:0,framesDecoded:0,framesDropped:1,freezeCount:0};
+ const s=a.streamSummary(prev,{timestamp:3000,bytesReceived:4e6,packetsLost:7,packetsReceived:1198,qpSum:1740,framesDecoded:60,framesDropped:3,freezeCount:1,frameWidth:1920,frameHeight:1080});
+ assert.equal(s.bitrateMbps,16);assert.equal(s.lossPct,1);assert.equal(s.qp,29);assert.equal(s.framesDropped,2);assert.equal(s.freezes,1);assert.equal(s.height,1080);
+ const first=a.streamSummary(null,{timestamp:1,bytesReceived:9});assert.equal(first.bitrateMbps,null);assert.equal(first.qp,null);assert.equal(a.streamSummary(prev,null),null);
+});
+test('compression level is neutral at QP 28 and bounded, presets are recognised',()=>{
+ const a=api();assert.equal(a.compressionLevel(28),.5);assert.equal(a.compressionLevel(10),0);assert.equal(a.compressionLevel(51),1);assert.equal(a.compressionLevel(NaN),null);
+ assert.deepEqual({...a.compressionScales(.5)},{cleanup:1,deband:1,detail:1});
+ const clean=a.compressionScales(0),heavy=a.compressionScales(1);assert.ok(clean.cleanup<1&&clean.detail>1&&heavy.cleanup>1&&heavy.detail<1);
+ assert.equal(a.presetOf(a.normalize({})),'natural');
+ for(const [key,p] of Object.entries(a.presets)){const s={...a.normalize({}),...p.values};assert.equal(a.presetOf(s),key);assert.deepEqual({...a.normalize(s)},s,key+' values are valid settings');}
+ assert.equal(a.presetOf({...a.normalize({}),sharpness:3.5}),'custom');
+ assert.equal(a.normalize({capture:'direct'}).capture,'direct');assert.equal(a.normalize({capture:'x'}).capture,'video');assert.equal(a.normalize({hud:'full',hudPosition:'bottom-right'}).hudPosition,'bottom-right');assert.equal(a.normalize({adaptive:false}).adaptive,false);
+});
