@@ -29,11 +29,12 @@ Objeto vivo, normalizado por `BxRestoration.normalize` (`src/restoration-engine.
 - `api.diagnostic` (booleano, não salvo): colore a imagem para confirmar que o tratamento roda.
 - `api.startMeasurement()` → `Promise<boolean>`; `api.measuring`; `api.exportMeasurement()` → baixa o JSON e devolve o relatório.
 - `api.configText()` → JSON para "Copiar configuração".
+- `api.copyText(text)` → `Promise<boolean>`: copia pela ponte do app Android ou pelo clipboard do navegador.
 - `api.nativePref(key)`: lê preferências do Better xCloud.
 - `api.panelOpen`: o painel marca `true` enquanto está visível (liga a telemetria).
 - `api.active`: há quadros tratados nos últimos 2,5 s.
 - `api.directSupported()`: o navegador permite a captura direta.
-- `window.BxAndroid` (só no app): `getRefreshRates()` (JSON), `getRefreshRate()`, `setRefreshRate(hz)`, `getAppInfo()`.
+- `window.BxAndroid` (só no app): `getRefreshRates()` (JSON), `getRefreshRate()`, `setRefreshRate(hz)`, `getAppInfo()`, `copyText(text)` e `saveFile(nome, mime, texto)` (Downloads/xCloud ImageFilter; usada pela exportação da medição). Só respondem com a página no xbox.com.
 
 ## Estado — `api.status` (atualizado a cada quadro e a cada segundo)
 

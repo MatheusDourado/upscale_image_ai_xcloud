@@ -38,6 +38,8 @@
   get measuring(){return !!activeEngine?.diagnostics.active;},
   async exportMeasurement(){const engine=activeEngine;if(!engine)return null;engine.poll();engine.diagnostics.stop();
    const report=engine.diagnostics.report();report.final=await BxRestoration.captureVideoStats(activePlayer?.$video,peer());report.net=status.net;BxRestoration.downloadReport(report);return report;},
+  // Clipboard: the Android app's bridge first (its WebView may deny navigator.clipboard).
+  async copyText(text){try{if(window.BxAndroid?.copyText?.(text))return true;}catch{}try{await navigator.clipboard.writeText(text);return true;}catch{return false;}},
   // Configuration summary to paste in a support conversation (no account data).
   configText(){const native={};for(const k of ['stream.video.resolution','stream.video.codecProfile','stream.video.maxBitrate','stream.video.preventResolutionDrops','server.region','server.bypassRestriction','userAgent.profile','video.player.type','video.processing','video.processing.mode','video.processing.sharpness','video.maxFps','video.player.powerPreference'])native[k]=api.nativePref(k)??null;
    const o=status.origin,round=v=>typeof v==='number'?Math.round(v*10)/10:v;

@@ -1,6 +1,10 @@
 package com.imagefilter.xcloud;
 
 import android.app.Activity;
+import android.content.ClipData;
+import android.content.ClipboardManager;
+import android.content.ContentValues;
+import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.graphics.Bitmap;
@@ -8,6 +12,8 @@ import android.graphics.Color;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Environment;
+import android.provider.MediaStore;
 import android.view.Display;
 import android.view.InputDevice;
 import android.view.KeyEvent;
@@ -24,7 +30,11 @@ import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.Toast;
 import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileOutputStream;
 import java.io.InputStream;
+import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.TreeSet;
 
 public class MainActivity extends Activity {
@@ -34,6 +44,8 @@ public class MainActivity extends Activity {
     private boolean documentStart;
     private SharedPreferences prefs;
     private String refreshRates = "[]";
+    // Page the bridge serves; file and clipboard calls are refused for any other site.
+    private volatile String currentUrl = "";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -88,6 +100,7 @@ public class MainActivity extends Activity {
 
             @Override
             public void onPageStarted(WebView view, String url, Bitmap favicon) {
+                currentUrl = url == null ? "" : url;
                 // Fallback for old WebView builds; the wrapper ignores a second run.
                 if (!documentStart && url != null && url.startsWith("https://www.xbox.com/")) {
                     view.evaluateJavascript(userscript, null);
@@ -108,6 +121,53 @@ public class MainActivity extends Activity {
         @JavascriptInterface public void setRefreshRate(final int hz) {
             prefs.edit().putInt("refreshRate", Math.max(0, hz)).apply();
             runOnUiThread(new Runnable() { @Override public void run() { applyRefreshRate(hz); } });
+        }
+        /** Copies text (configuration) to the clipboard; the WebView may deny navigator.clipboard. */
+        @JavascriptInterface public boolean copyText(final String text) {
+            if (!fromXbox() || text == null) return false;
+            runOnUiThread(new Runnable() { @Override public void run() {
+                ClipboardManager clipboard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+                clipboard.setPrimaryClip(ClipData.newPlainText("xCloud ImageFilter", text));
+                Toast.makeText(MainActivity.this, "Configuração copiada", Toast.LENGTH_SHORT).show();
+            } });
+            return true;
+        }
+        /** Saves a text file (measurement export) to Downloads/xCloud ImageFilter; returns where, or "" on failure. */
+        @JavascriptInterface public String saveFile(String name, String mime, String text) {
+            if (!fromXbox() || name == null || text == null) return "";
+            final String safe = name.replaceAll("[^A-Za-z0-9._-]", "_");
+            try {
+                byte[] bytes = text.getBytes(StandardCharsets.UTF_8);
+                final String where;
+                if (Build.VERSION.SDK_INT >= 29) {
+                    ContentValues values = new ContentValues();
+                    values.put(MediaStore.MediaColumns.DISPLAY_NAME, safe);
+                    values.put(MediaStore.MediaColumns.MIME_TYPE, mime == null ? "application/json" : mime);
+                    values.put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/xCloud ImageFilter");
+                    Uri uri = getContentResolver().insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values);
+                    if (uri == null) return "";
+                    try (OutputStream out = getContentResolver().openOutputStream(uri)) { out.write(bytes); }
+                    where = "Downloads/xCloud ImageFilter/" + safe;
+                } else {
+                    // Android 9: app folder, no storage permission needed.
+                    File dir = getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS);
+                    File file = new File(dir, safe);
+                    try (FileOutputStream out = new FileOutputStream(file)) { out.write(bytes); }
+                    where = file.getAbsolutePath();
+                }
+                runOnUiThread(new Runnable() { @Override public void run() {
+                    Toast.makeText(MainActivity.this, "Medição salva em " + where, Toast.LENGTH_LONG).show();
+                } });
+                return where;
+            } catch (Exception error) {
+                android.util.Log.w("XCloudImageFilter", "saveFile failed", error);
+                return "";
+            }
+        }
+        private boolean fromXbox() {
+            Uri uri = Uri.parse(currentUrl);
+            String host = uri.getHost();
+            return "https".equals(uri.getScheme()) && host != null && (host.equals("www.xbox.com") || host.equals("xbox.com"));
         }
     }
 
