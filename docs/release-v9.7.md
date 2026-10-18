@@ -61,4 +61,25 @@ A interface passou por três revisões (visual, entrada e código), com 29 achad
 
 ## Validação
 
-(preencher)
+- **43 testes Node:** compassador com troca de relógio, adaptação por QP com histerese e troca de sessão, resumo de rede, perfis e segmentos da medição.
+- **114 verificações Chrome/WebGL/DOM do painel e do HUD:**
+  - ações dos avisos;
+  - seletor do Better xCloud no modo controle;
+  - painel oculto sem temporizadores;
+  - campos nulos sem "undefined"/"NaN";
+  - HUD em todos os layouts.
+- **43 regressões de pixels e 11 casos de movimento.**
+- **16 verificações de captura direta num WebRTC real no Chromium:**
+  - todos os quadros entregues;
+  - agendamento real após a troca de origem;
+  - limite de FPS;
+  - fallback sem o recurso;
+  - limpeza ao destruir o player.
+- **Revisões adversariais:**
+  - no motor, 16 achados, 14 confirmados por um verificador independente e corrigidos;
+  - na interface, 29 achados nas lentes visual, entrada e código, corrigidos.
+- **APK:** assinado com o certificado da série 9.x; userscript embarcado conferido.
+
+Não testado em aparelho nem em sessão real do xCloud. A captura direta é experimental e fica desligada até você escolher *Direta*.
+
+Arquivos: `better-xcloud-image-filter.user.js` e `xcloud-imagefilter-9.7.apk` (instala por cima da 9.x).
