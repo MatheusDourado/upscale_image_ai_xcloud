@@ -29,7 +29,28 @@ Prioridades desta versão, na ordem pedida: **fluidez**, **nitidez** e **tratame
 
 ## Painel e HUD
 
-(ver seção da interface)
+Design próprio. Três direções independentes (minimalista de jogo, nativa do Xbox, laboratório de ajuste) foram comparadas por um juiz, que verificou cada regra contra o código de navegação do Better xCloud. Base escolhida: a nativa do Xbox, com o cartão ao vivo e a linha Servidor → Chegada → Tela da direção de telemetria.
+
+- **Cartão ao vivo:** FPS, ritmo (±ms e p95), travadas (ou "captura direta") e latência estimada, com gráfico do ritmo na tela e linha de vídeo/rede (resolução, codec, decodificador, Mb/s, QP, perda).
+- **Seções:**
+  - **01 Fluidez:** veredito com ação de um toque, por exemplo *Usar captura direta*; "onde nasce a oscilação" (servidor, chegada, tela); descartes por minuto.
+  - **02 Nitidez e imagem:** perfis, Nitidez, método, saída, *Adaptar à compressão* com o QP ao vivo, Comparação.
+  - **03 Ajuste fino:** mostra o valor efetivo quando a adaptação altera a força.
+  - **04 Desempenho e rede:** GPU, latência por etapa, stream e decodificador.
+  - **05 Indicadores e ferramentas:** HUD, canto, diagnóstico, medição, copiar e restaurar.
+- **Controle, toque e teclado:** nenhum `<select>`. Cada escolha é um controle segmentado sobre um `range` de passos inteiros: o D-pad muda o valor, A alterna e um toque escolhe.
+  - O foco nunca para escondido sob o seletor fixo de jogo do Better xCloud.
+  - No celular, os alvos de toque têm 40 px ou mais.
+  - Na TV, os textos têm tamanho para ver do sofá.
+- **Avisos no topo:** os que têm ação (*Usar Auto*, *Ir para Renderizador*) aparecem sempre; os demais abrem em "Mostrar +N avisos".
+- **HUD (indicadores durante o jogo):**
+  - *Compacto*: FPS, ritmo, travadas e latência, mais alertas quando algo vai mal.
+  - *Completo*: ritmo, quadros, Fluidez, latência por etapa, vídeo, rede e aviso.
+  - No celular, o HUD fica na **faixa preta ao lado do vídeo 16:9**, sem cobrir o jogo. Na TV, é um cartão translúcido no canto escolhido, abaixo da barra de estatísticas do Better xCloud.
+  - Atualiza 2 vezes por segundo, não recebe foco nem toque, e esmaece depois de 10 s com tudo bom.
+- **Cores:** só o que pede atenção ganha cor (amarelo ou vermelho), com formas para daltônicos (●, ◆, ▲). Uma piora aparece depois de 1 s; uma melhora, na hora.
+
+A interface passou por três revisões (visual, entrada e código), com 29 achados. Todos os graves e menores foram corrigidos, e os de detalhe aplicados quando simples.
 
 ## Diagnóstico
 

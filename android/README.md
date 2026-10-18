@@ -1,13 +1,13 @@
-# xCloud ImageFilter para Android — v9.6.1
+# xCloud ImageFilter para Android — v9.7
 
-App Android próprio (WebView) que abre o xCloud e injeta o userscript desta versão (Better xCloud 6.7.12 + tratamento de imagem **v9.6.1**). **Não é o app oficial do Better xCloud**: o app oficial é de código fechado (o repositório `redphx/better-xcloud-android` só tem o README), então não dá para modificá-lo.
+App Android próprio (WebView) que abre o xCloud e injeta o userscript desta versão (Better xCloud 6.7.12 + tratamento de imagem **v9.7**). **Não é o app oficial do Better xCloud**: o app oficial é de código fechado (o repositório `redphx/better-xcloud-android` só tem o README), então não dá para modificá-lo.
 
 ## Instalar
 
-1. Baixe `android/dist/xcloud-imagefilter-9.6.1.apk` deste repositório (no GitHub: abra o arquivo → **Download raw file**).
+1. Baixe `android/dist/xcloud-imagefilter-9.7.apk` deste repositório (no GitHub: abra o arquivo → **Download raw file**).
 2. No celular, permita instalar apps da fonte usada (navegador ou gerenciador de arquivos) e instale.
 3. Abra **xCloud ImageFilter**, faça login na conta Microsoft e entre num jogo.
-4. No menu do Better xCloud → **Vídeo**, mantenha o renderizador **WebGL2**. O painel **Tratamento de imagem • v9.6.1** fica logo abaixo de Nitidez.
+4. No menu do Better xCloud → **Vídeo**, mantenha o renderizador **WebGL2**. O painel **Tratamento de imagem** fica logo abaixo de Renderizador. Em **05 Indicadores e ferramentas**, ligue os indicadores no jogo: no celular eles ficam na faixa preta ao lado do vídeo.
 
 Pode ser instalado junto com o app oficial: o pacote é outro (`com.imagefilter.xcloud`) e o login é separado.
 
@@ -22,9 +22,10 @@ Pode ser instalado junto com o app oficial: o pacote é outro (`com.imagefilter.
 - **Taxa da tela**: no painel, *Taxa da tela (app)* fixa 60/90/120 Hz (ou deixa o sistema decidir). A escolha fica salva no app.
 - **Suavidade**: alvo de buffer solicitado ao navegador, independente do renderizador; o painel informa suporte e o atraso medido. Não é uma garantia de latência máxima.
 - Botão B do controle não fecha o jogo (Android converte B não tratado em "voltar").
+- **Exportar medição** salva o JSON em `Downloads/xCloud ImageFilter`; **Copiar configuração** usa a área de transferência do sistema.
 - Depuração remota habilitada: com o celular no PC por USB, abra `chrome://inspect` para ver o console.
 
-Limitações: **Iniciar/Encerrar e exportar medição** não baixa o JSON no app (WebView não trata downloads de blob). O microfone não é solicitado. Não há atualização automática.
+Limitações: O microfone não é solicitado. Não há atualização automática.
 
 ## Sugestão inicial no Poco F7
 
@@ -41,4 +42,4 @@ android/build.sh
 
 O script gera o userscript (`tools/build.py`), baixa o `android.jar` da API 34 se faltar, compila, gera o dex e assina com `android/debug.keystore`. Essa chave é **de teste** (senha `android`) e é fixa para que novas versões instalem por cima; não é segredo nem serve para loja.
 
-Validação da v9.6.1: APK assinado com o mesmo certificado da série 9.x, `minSdk 28`, `targetSdk 34` e userscript embarcado conferido. Testes Node e Chrome/WebGL passaram; veja [as notas](../docs/release-v9.6.1.md). **Não foi testado num aparelho ou emulador**; a sessão com o xCloud real e o desempenho no Poco F7 estão pendentes.
+Validação da v9.7: APK assinado com o mesmo certificado da série 9.x, `minSdk 28`, `targetSdk 34` e userscript embarcado conferido. Testes Node e Chrome/WebGL passaram, incluindo WebRTC real; veja [as notas](../docs/release-v9.7.md). **Não foi testado num aparelho ou emulador**; a sessão com o xCloud real e o desempenho no Poco F7 estão pendentes.

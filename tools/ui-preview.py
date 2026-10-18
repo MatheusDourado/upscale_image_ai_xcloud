@@ -54,7 +54,7 @@ const Q=Object.fromEntries(new URLSearchParams(location.hash.slice(1)));
 const SCENE=Q.scene||'normal',DEVICE=Q.device||'phone';
 try{localStorage.clear();}catch{}
 if(SCENE==='warnings'){prefs['stream.video.maxBitrate']=6*1024000;prefs['stream.video.resolution']='720p';}
-if(DEVICE==='phone')window.BxAndroid={getRefreshRates:()=>'[60,90,120]',getRefreshRate:()=>Number(Q.hz??120),setRefreshRate(v){this._r=v;},getAppInfo:()=>'{"version":"9.6.1"}'};
+if(DEVICE==='phone')window.BxAndroid={getRefreshRates:()=>'[60,90,120]',getRefreshRate:()=>Number(Q.hz??120),setRefreshRate(v){this._r=v;},getAppInfo:()=>'{"version":"9.7"}'};
 '''
 
 PREVIEW = r'''
