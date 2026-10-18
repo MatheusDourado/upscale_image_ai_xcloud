@@ -8,6 +8,12 @@ assert source.count(marker)==1
 a=source.index('class WebGL2Player');b=source.index(marker,a)
 cas=re.search(r'gl.shaderSource\(fShader, `([^`]+)`\)',source[a:b]).group(1)
 cas=cas.replace('precision mediump float;','precision highp float;\nprecision highp sampler2D;').replace('1.0 / maxRgb','1.0 / max(maxRgb, vec3(1e-6))').replace('inversesqrt(amplifyRgb)','inversesqrt(max(amplifyRgb, vec3(1e-6)))')
+# Upstream takes the texel size from the canvas, which equals the video there. Here the canvas can
+# be larger (Auto/2K/4K output): neighbors must stay one source texel apart, or the reference
+# sharpening fades (USM 4x weaker at 2x output).
+texel='vec2 texelSize = 1.0 / iResolution.xy;'
+assert cas.count(texel)==1
+cas=cas.replace(texel,'vec2 texelSize = 1.0 / vec2(textureSize(tex, 0));')
 shaders={p.stem:p.read_text() for p in sorted(Path('src/shaders').glob('*.glsl'))}
 # Neural restoration: weights from src/nn/restore.json (tools/nn/train.py) become shader constants.
 import sys; sys.path.insert(0,'tools')
@@ -39,7 +45,7 @@ for expression in ['e + (e - gaussianBlur) * sharpenFactor / 3.0','mix(e, outCol
     assert filtered.count(needle)==1
     filtered=filtered.replace(needle,'return limitSharpen(e,'+expression+','+bounds+');')
 shaders['casFiltered']=filtered
-inputs=[Path('script.js'),Path('tools/build.py'),*sorted(Path('src').rglob('*.*'))]
+inputs=[Path('script.js'),Path('tools/build.py'),Path('tools/nn_glsl.py'),*sorted(Path('src').rglob('*.*'))]
 fingerprint=hashlib.sha256(b''.join(str(p).encode()+b'\0'+p.read_bytes() for p in inputs if p.is_file())).hexdigest()
 build='globalThis.BxBuild='+json.dumps({'version':'6.7.12-imagefilter.9.6','sourceSha256':fingerprint})+';\n'
 bundle=build+'globalThis.BxShaders='+json.dumps(shaders)+';\n'+Path('src/restoration-engine.js').read_text()

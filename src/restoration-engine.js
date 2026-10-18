@@ -231,7 +231,8 @@
     }
     draw(name,target,w,h,textures={},uniforms={}){
       const gl=this.gl,p=this.programs[name];gl.bindVertexArray(this.vao);gl.bindFramebuffer(gl.FRAMEBUFFER,target?target.fbo:null);gl.viewport(0,0,w,h);gl.useProgram(p.program);
-      const location=k=>p.locations[k]??(p.locations[k]=gl.getUniformLocation(p.program,k));
+      // Cache misses too (null): shared uniform sets name uniforms some programs lack.
+      const location=k=>Object.hasOwn(p.locations,k)?p.locations[k]:(p.locations[k]=gl.getUniformLocation(p.program,k));
       let slot=0;for(const [key,texture]of Object.entries(textures)){gl.activeTexture(gl.TEXTURE0+slot);gl.bindTexture(gl.TEXTURE_2D,texture);gl.uniform1i(location(key),slot++);}
       for(const [key,value]of Object.entries({outputSize:[w,h],...uniforms})){
         if(typeof value==='boolean')gl.uniform1i(location(key),value?1:0);

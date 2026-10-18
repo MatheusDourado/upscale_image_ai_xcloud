@@ -42,6 +42,7 @@
   // attach() covers the opposite order.
   const onMeta=(now,meta)=>{
    if(player.isStopped)return;t.metaId=video.requestVideoFrameCallback(onMeta);
+   if(Number.isFinite(meta?.presentedFrames))t.presented=meta.presentedFrames;
    const rtp=meta&&Number.isFinite(meta.rtpTimestamp)?t.clock(meta.rtpTimestamp):null,at=performance.now();
    if(rtp!==null)keep(t.server,rtp,at);
    keep(t.arrival,Number.isFinite(meta?.receiveTime)?meta.receiveTime:at,at);
@@ -76,7 +77,7 @@
   if(!this.bxListeners){
    const reset=()=>{this.bxEngine?.resetHistory();this.bxLastFrame=null;this.bxReferenceFps=null;this.bxTimes=[];this.bxCadenceMark=performance.now();};
    const lost=e=>{e.preventDefault();reset();status.mode='error';status.error='Contexto GPU perdido; aguardando restauração';};
-   const restored=()=>{this.bxEngine?.destroy();this.bxEngine=null;this.setupShaders().catch(e=>{status.error=String(e.message);});};
+   const restored=()=>{stopPacer(this);this.bxEngine?.destroy();this.bxEngine=null;this.setupShaders().catch(e=>{status.error=String(e.message);});};
    this.bxListeners={reset,lost,restored};
    for(const name of ['seeking','pause','emptied'])this.$video.addEventListener(name,reset);
    this.$canvas.addEventListener('webglcontextlost',lost);this.$canvas.addEventListener('webglcontextrestored',restored);
@@ -97,7 +98,11 @@
   const shown=displayHeight(this,w,h);renderSettings.output=BxRestoration.resolveOutput(settings.output,shown,h);
   const time=Number.isFinite(video.currentTime)?video.currentTime:performance.now()/1000;
   const count=video.getVideoPlaybackQuality?.().totalVideoFrames;
-  const token=count>0?`${count}:${w}:${h}`:`${time}:${w}:${h}`;
+  // WebRTC counts totalVideoFrames on arrival, so a frame that arrived before the previous
+  // callback can be presented later with the same count. The presented-frame counter from
+  // requestVideoFrameCallback marks every new frame on screen.
+  const presented=this.bxTiming?.presented,id=Number.isFinite(presented)?presented+'/':'';
+  const token=count>0?`${id}${count}:${w}:${h}`:`${id}${time}:${w}:${h}`;
   const newFrame=this.bxLastFrame!==token;
   const size=this.bxEngine.outputSize(w,h,renderSettings),ow=size.width,oh=size.height;
   const controls=JSON.stringify(renderSettings)+api.diagnostic+':'+this.bxEngine.budget.revision;
@@ -133,7 +138,7 @@
     else if(!this.bxEngine.ext)this.bxEngine.budget.cadence(this.bxReferenceFps,status.fps);
     this.bxCadenceMark=now;
    }
-  }catch(error){status.mode='error';status.error=String(error.message||error);this.bxEngine.destroy();this.bxEngine=null;activeEngine=null;fallback(this);}
+  }catch(error){status.mode='error';status.error=String(error.message||error);stopPacer(this);this.bxEngine.destroy();this.bxEngine=null;activeEngine=null;fallback(this);}
   finally{if(this.gl&&!this.gl.isContextLost())this.gl.useProgram(this.program);}
  };
  proto.destroy=function(){
@@ -207,7 +212,7 @@
     stats.forEach(item=>{if(item.type==='inbound-rtp'&&item.kind==='video')rtp=item;
      if(item.type==='candidate-pair'&&item.nominated&&item.state==='succeeded'&&Number.isFinite(item.currentRoundTripTime))rtt=item.currentRoundTripTime*1000;});
     const info=rtp&&stats.get?.(rtp.codecId),profile=BxRestoration.h264Profile(info?.sdpFmtpLine);
-    const codec=info?.mimeType?.replace('video/','')+(profile?' '+profile:'');
+    const codec=info?.mimeType?info.mimeType.replace('video/','')+(profile?' '+profile:''):null;
     const d=BxRestoration.decoderSummary(lastRtp,rtp?{...rtp,codec}:null);lastRtp=rtp;
     const ms=v=>v===null||v===undefined?'—':v.toFixed(1)+' ms',gpu=status.measurement==='gpu'&&status.gpuP95!==null?status.gpuP95:null;
     // One line per stage: the network round trip, then what the client adds per frame.

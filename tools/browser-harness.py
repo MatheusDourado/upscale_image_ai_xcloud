@@ -38,6 +38,9 @@ probe=r'''
  player.refreshPlayer();check(player.gl.getError()===player.gl.NO_ERROR,'Better xCloud settings refresh remains valid');
  const count=player.bxEngine.frames;player.updateFrame();check(player.bxEngine.frames===count,'Duplicate source frame skipped');
  BxImageFilter.settings.mode='cas';player.updateFrame();check(player.bxEngine.frames===count+1,'Control change redraws paused frame');
+ {const before=player.bxEngine.frames;player.bxTiming.presented=(player.bxTiming.presented||0)+1;player.updateFrame();
+  check(player.bxEngine.frames===before+1,'A newly presented frame renders even when the decoded-frame counter did not advance');
+  player.updateFrame();check(player.bxEngine.frames===before+1,'The same presented frame is not processed twice');}
  player.bxEngine.budget.temporalAllowed=false;BxImageFilter.reset();check(player.bxEngine.budget.temporalAllowed,'Panel reset clears adaptation');
  
  const prevCount=player.bxEngine.frames;
@@ -115,6 +118,11 @@ probe=r'''
   let sel=null;for(let t=0;t<10&&!(sel=menu2.querySelector('select[aria-label="Taxa da tela (app)"]'));t++)await new Promise(r=>setTimeout(r,300));
   check(sel&&[...sel.options].map(o=>o.value).join()==='0,60,90,120','Android app shows fixed refresh-rate options');
   sel.value='120';sel.dispatchEvent(new Event('change'));check(set===120,'Selecting a refresh rate calls the app bridge');delete window.BxAndroid;}
+ // A GPU failure while Fluidez is on must also end its display loop, not only the engine.
+ BxImageFilter.settings.fluidity='balanced';adapterInput.currentTime+=.033;player.updateFrame();
+ player.bxEngine.render=()=>{throw new Error('simulated GPU failure');};adapterInput.currentTime+=.033;player.updateFrame();
+ check(!player.bxEngine&&!player.bxTiming.pacer&&BxImageFilter.status.mode==='error','Render failure stops the Fluidez loop and falls back to the original renderer');
+ BxImageFilter.settings.fluidity='off';
  player.destroy();
  const nextPlayer=new WebGL2Player(adapterInput);await nextPlayer.setupShaders();nextPlayer.updateFrame();BxImageFilter.diagnostic=true;nextPlayer.updateFrame();
  const tint=new Uint8Array(128*96*4);nextPlayer.gl.readPixels(0,0,128,96,nextPlayer.gl.RGBA,nextPlayer.gl.UNSIGNED_BYTE,tint);
@@ -123,6 +131,15 @@ probe=r'''
  const stoppedPlayer=new WebGL2Player(adapterInput);const pending=stoppedPlayer.setupShaders();stoppedPlayer.destroy();await pending;check(!stoppedPlayer.bxEngine,'Destroy during asynchronous setup does not resurrect engine');
 
 
+ // Reference sharpening keeps one source texel between taps when the output is larger than the video.
+ {const overshoot=scale=>{const c=document.createElement('canvas');c.width=64*scale;c.height=32*scale;
+   const g=c.getContext('webgl2',{preserveDrawingBuffer:true,antialias:false}),e=new BxRestoration.Engine(g,BxShaders);
+   const src=document.createElement('canvas');src.width=64;src.height=32;const x=src.getContext('2d');x.fillStyle='rgb(80,80,80)';x.fillRect(0,0,32,32);x.fillStyle='rgb(160,160,160)';x.fillRect(32,0,32,32);
+   e.render(src,c.width,c.height,BxRestoration.normalize({mode:'cas',sharpening:'usm',sharpness:5,gpuBudget:0}),0);
+   const row=new Uint8Array(c.width*4);g.readPixels(0,16*scale,c.width,1,g.RGBA,g.UNSIGNED_BYTE,row);e.destroy();
+   let hi=0;for(let i=0;i<row.length;i+=4)hi=Math.max(hi,row[i]);return hi-160;};
+  const native=overshoot(1),doubled=overshoot(2);
+  check(native>10&&doubled>=native*.6,`Reference sharpening keeps its strength at 2x output (${native} vs ${doubled})`);}
  // Isolate AA at native resolution and with sharpening disabled.
  canvas.width=128;canvas.height=96;
  for(let y=0;y<96;y++)for(let x=0;x<128;x++){ctx.fillStyle=x>y*.5+30?'white':'black';ctx.fillRect(x,y,1,1);}
