@@ -74,27 +74,45 @@
   }};}
   function createDiagnostics(){
     // One segment per distinct configuration: returning to an earlier one (e.g. the adaptive QP level)
-    // continues its segment, with time counted only while it is current.
-    let recording=false,segments=[],byKey=new Map(),current=null,count=0,disjoints=0,started=null,ended=null,stopReason=null,metadata={};
-    const percentile=(a,p)=>a.length?a[Math.ceil(a.length*p)-1]:null;
+    // continues its segment, with time counted only while it is current. Besides the GPU time, each
+    // segment keeps the intervals between frames shown (display), reaching the treatment (arrival) and
+    // captured by the server (server), the Fluidez wait per frame and its drops; the report adds a
+    // per-second stream timeline, so pacing can be read from the file, not only the average FPS.
+    let recording=false,segments=[],byKey=new Map(),current=null,count=0,disjoints=0,started=null,ended=null,stopReason=null,metadata={},timeline=[];
+    const LIMIT=300000,INTERVALS=['display','arrival','server','wait'];
+    const percentile=(a,p)=>a.length?a[Math.ceil(a.length*p)-1]:null,round=v=>Math.round(v*100)/100;
+    // Hitches: intervals over 1.5x the median, i.e. a frame shown late.
+    function summary(values){const n=values.length,sorted=[...values].sort((a,b)=>a-b),mean=n?values.reduce((a,b)=>a+b,0)/n:null,median=percentile(sorted,.5);
+      return {count:n,meanMs:mean,p50:median,p95:percentile(sorted,.95),p99:percentile(sorted,.99),maxMs:n?sorted[n-1]:null,
+        deviationMs:n?Math.sqrt(values.reduce((a,b)=>a+(b-mean)**2,0)/n):null,hitches:n?values.filter(v=>v>median*1.5).length:0,samplesMs:values.map(round)};}
     return {
-      get active(){return recording;},
-      start(meta={}){recording=true;segments=[];byKey=new Map();current=null;count=0;disjoints=0;started=Date.now();ended=null;stopReason=null;metadata=meta;},
+      get active(){return recording;},get startedAt(){return started;},
+      start(meta={}){recording=true;segments=[];byKey=new Map();current=null;count=0;disjoints=0;started=Date.now();ended=null;stopReason=null;metadata=meta;timeline=[];},
       stop(reason=null){if(!recording)return;recording=false;ended=Date.now();stopReason=reason;},
       frame(config,time){if(!recording)return null;const key=JSON.stringify(config);
         if(current?.key!==key){if(current)current.activeMs+=current.last-current.since;
           let segment=byKey.get(key);
-          if(!segment){if(segments.length>=256){this.stop('limite de 256 configurações');return null;}segment={key,config,frames:0,visits:0,activeMs:0,since:time,last:time,gpu:[]};segments.push(segment);byKey.set(key,segment);}
+          if(!segment){if(segments.length>=256){this.stop('limite de 256 configurações');return null;}segment={key,config,frames:0,visits:0,activeMs:0,since:time,last:time,dropped:0,gpu:[],display:[],arrival:[],server:[],wait:[]};segments.push(segment);byKey.set(key,segment);}
           segment.visits++;segment.since=segment.last=time;current=segment;}
         current.frames++;current.last=time;return current;
       },
       sample(segment,ms){if(!segment||!segments.includes(segment)||!Number.isFinite(ms)||ms<0)return;
-        if(count>=120000)return;segment.gpu.push(ms);count++;
+        if(count>=LIMIT)return;segment.gpu.push(ms);count++;
       },
+      // Interval (ms) of the configuration being rendered: 'display', 'arrival', 'server' or 'wait'.
+      interval(kind,ms){if(!recording||!current||!INTERVALS.includes(kind)||!Number.isFinite(ms)||ms<0||count>=LIMIT)return;current[kind].push(ms);count++;},
+      dropped(n){if(recording&&current&&n>0)current.dropped+=n;},
+      // One row per second of stream telemetry, t in seconds since the start; at most an hour.
+      timeline(entry){if(!recording||timeline.length>=3600)return;const row={t:round((Date.now()-started)/1000)};
+        for(const [k,v] of Object.entries(entry))row[k]=typeof v==='number'?(Number.isFinite(v)?round(v):null):v??null;timeline.push(row);},
+      annotate(meta){if(recording)Object.assign(metadata,meta);},
       disjoint(){if(recording)disjoints++;},
-      report(){return {schema:1,version:'9.7',build:globalThis.BxBuild??null,started,ended,stopReason,recording,metadata,disjoints,sampleLimit:120000,truncated:count>=120000||segments.length>=256,
-        segments:segments.map(segment=>{const {config,frames,visits,gpu}=segment,durationMs=segment.activeMs+(segment===current?segment.last-segment.since:0);
-          const sorted=[...gpu].sort((a,b)=>a-b);return {config,frames,durationMs,drawFps:durationMs>0?(frames-visits)*1000/durationMs:null,gpu:{count:gpu.length,p50:percentile(sorted,.5),p95:percentile(sorted,.95),p99:percentile(sorted,.99),samplesMs:[...gpu]}};})};}
+      report(){return {schema:2,version:'9.7.1',build:globalThis.BxBuild??null,started,ended,stopReason,recording,metadata,disjoints,sampleLimit:LIMIT,truncated:count>=LIMIT||segments.length>=256,
+        segments:segments.map(segment=>{const {config,frames,visits,gpu,dropped}=segment,durationMs=segment.activeMs+(segment===current?segment.last-segment.since:0);
+          const sorted=[...gpu].sort((a,b)=>a-b);return {config,frames,durationMs,drawFps:durationMs>0?(frames-visits)*1000/durationMs:null,pacerDropped:dropped,
+            gpu:{count:gpu.length,p50:percentile(sorted,.5),p95:percentile(sorted,.95),p99:percentile(sorted,.99),samplesMs:[...gpu]},
+            display:summary(segment.display),arrival:summary(segment.arrival),server:summary(segment.server),wait:summary(segment.wait)};}),
+        timeline};}
     };
   }
   async function captureVideoStats(video,peer){
@@ -226,8 +244,15 @@
     const bytes=delta('bytesReceived'),lost=delta('packetsLost'),received=delta('packetsReceived'),qp=delta('qpSum'),frames=delta('framesDecoded');
     return {bitrateMbps:seconds>0&&bytes>=0?bytes*8/seconds/1e6:null,lossPct:lost!==null&&received!==null&&lost+received>0?Math.max(0,lost)*100/(lost+received):null,
       qp:qp!==null&&frames>0?qp/frames:null,frames,framesDropped:delta('framesDropped'),freezes:delta('freezeCount'),
-      width:Number.isFinite(current.frameWidth)?current.frameWidth:null,height:Number.isFinite(current.frameHeight)?current.frameHeight:null};
+      width:Number.isFinite(current.frameWidth)?current.frameWidth:null,height:Number.isFinite(current.frameHeight)?current.frameHeight:null,
+      // Encoded bits per pixel of each frame: the compression estimate when the browser reports no QP.
+      bitsPerPixel:bytes!==null&&bytes>=0&&frames>0&&current.frameWidth>0&&current.frameHeight>0?bytes*8/(frames*current.frameWidth*current.frameHeight):null};
   }
+  // Without the decoder's QP (the Android WebView reports no qpSum), the bits per pixel stand in for it:
+  // 0.12 bit/pixel (15 Mb/s at 1080p60, the middle of the v9 calibration streams) is the neutral QP 28,
+  // and each doubling 4 QP less. H.264 needs about 6 QP per doubling; the gentler slope keeps an
+  // estimate that cannot see the scene content closer to neutral.
+  function qpFromBitsPerPixel(bpp){if(!(bpp>0)||!Number.isFinite(bpp))return null;return Math.min(51,Math.max(0,28-4*Math.log2(bpp/.12)));}
   // Compression-adaptive treatment: like a codec's deblocking filter, cleanup and debanding follow the
   // quantizer. Level 0 (QP <= 20, clean stream) to 1 (QP >= 36, heavy compression), in steps of 0.1;
   // QP 28 is neutral (all scales 1), so typical streams keep the measured v9 strengths.
@@ -245,13 +270,14 @@
   });
   function presetOf(settings){for(const [key,p] of Object.entries(presets))if(Object.entries(p.values).every(([k,v])=>settings[k]===v))return key;return 'custom';}
   // The Android app's WebView cannot download blobs: its bridge saves the file to Downloads instead.
-  function downloadReport(report){const name='bx-v9.7-diagnostics-'+Date.now()+'.json';
+  function downloadReport(report){const name='bx-v9.7.1-diagnostics-'+Date.now()+'.json';
     if(typeof globalThis.BxAndroid?.saveFile==='function'){const where=globalThis.BxAndroid.saveFile(name,'application/json',JSON.stringify(report,null,2));if(where)return where;}
     const url=URL.createObjectURL(new Blob([JSON.stringify(report,null,2)],{type:'application/json'})),a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
   const vertex='#version 300 es\nlayout(location=0) in vec2 position;void main(){gl_Position=vec4(position,0,1);}';
   class Engine {
     constructor(gl,shaders){
       this.gl=gl;this.programs={};this.targets={};this.queries=[];this.budget=createBudget();this.previous=null;this.frames=0;this.diagnostics=createDiagnostics();this.ext=gl.getExtension('EXT_disjoint_timer_query_webgl2');
+      this.fenceTiming=!this.ext&&typeof gl.fenceSync==='function';this.fence=null;this.fenceAt=-Infinity;this.fenceValues=[];this.fenceGeneration=0;this.gpuEstimate=null;
       this.floatTargets=!!gl.getExtension('EXT_color_buffer_float');
       try {
         this.vao=gl.createVertexArray();gl.bindVertexArray(this.vao);this.buffer=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,this.buffer);
@@ -303,6 +329,22 @@
       while(this.queries.length&&gl.getQueryParameter(this.queries[0].q,gl.QUERY_RESULT_AVAILABLE)){
         const item=this.queries.shift();if(item.revision===this.budget.revision){const ms=gl.getQueryParameter(item.q,gl.QUERY_RESULT)/1e6;this.budget.sample(ms,item.mode);this.diagnostics.sample(item.segment,ms);}gl.deleteQuery(item.q);}
     }
+    // Without the timer query (Android WebView), every 0.5 s a fence after a frame, polled on later tasks,
+    // times it from its first command until the GPU finished it: an upper bound of the GPU time (it also
+    // counts work queued before it), shown as an estimate and never used to reduce the treatment.
+    startFence(start,mode,segment){const gl=this.gl,sync=gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE,0);if(!sync)return;gl.flush();
+      this.fenceAt=start;this.fence={sync,start,mode,segment,generation:this.fenceGeneration};setTimeout(()=>this.pollFence(),1);}
+    pollFence(){const gl=this.gl,f=this.fence;if(!f)return;
+      if(gl.isContextLost()){this.fence=null;return;}
+      const now=performance.now(),signaled=gl.getSyncParameter(f.sync,gl.SYNC_STATUS)===gl.SIGNALED;
+      // A hidden page throttles timers: a late reading would measure the throttling, not the GPU.
+      if(!signaled&&now-f.start<250){setTimeout(()=>this.pollFence(),1);return;}
+      gl.deleteSync(f.sync);this.fence=null;if(!signaled)return;
+      const ms=now-f.start;this.diagnostics.sample(f.segment,ms);
+      if(f.mode!=='filtered'||f.generation!==this.fenceGeneration)return;
+      this.fenceValues.push(ms);if(this.fenceValues.length>30)this.fenceValues.shift();
+      const sorted=[...this.fenceValues].sort((a,b)=>a-b);this.gpuEstimate={p50:sorted[(sorted.length-1)>>1],p95:sorted[Math.ceil(sorted.length*.95)-1],count:sorted.length};
+    }
     outputSize(w,h,settings){
       if(this.budget.limitMs!==settings.gpuBudget){this.resetBudget();this.budget.limitMs=settings.gpuBudget;}
       this.budget.configure(settings,h);this.poll();
@@ -313,6 +355,7 @@
     render(video,outW,outH,rawSettings,time,diagnostic=false,outputTarget=null){
       const gl=this.gl,s=normalize(rawSettings),w=video.videoWidth||video.displayWidth||video.width,h=video.videoHeight||video.displayHeight||video.height;
       if(!w||!h||gl.isContextLost())return false;
+      const started=performance.now();
       if(this.budget.limitMs!==s.gpuBudget){this.resetBudget();this.budget.limitMs=s.gpuBudget;}
       this.budget.configure(s,h);
       this.poll();let q=null;
@@ -365,6 +408,7 @@
         const method=s.sharpening==='native'?s.processing:s.sharpening;
         const casName=s.mode!=='original'&&method==='rcas'?'rcas':s.mode==='filtered'?'casFiltered':'cas';const p=this.programs[casName];gl.useProgram(p.program);gl.uniform1i(gl.getUniformLocation(p.program,'filterId'),method==='usm'?1:2);
         this.draw(casName,outputTarget?this.target(outputTarget,outW,outH):null,outW,outH,{data:source},{iResolution:[outW,outH],qualityMode:s.mode==='filtered'&&s.processingMode==='quality',rcasStrength:s.sharpness/10,haloMargin:(2+s.sharpness)/255,noiseFloor:s.noiseFloor/255,lumaSharpen:s.lumaSharpen,sharpenFactor:s.mode==='original'?0:s.mode==='cas'?s.sharpness/1.2:s.sharpness/(s.processingMode==='quality'?1:1.2),brightness:1,contrast:s.mode==='filtered'?s.contrast:1,saturation:s.mode==='filtered'?s.saturation:1,shadows:s.mode==='filtered'?s.shadows:0,deband:s.mode==='filtered'?s.deband*this.budget.debandScale:0,diagnostic});
+        if(this.fenceTiming&&!this.fence&&started-this.fenceAt>=500)this.startFence(started,s.mode,segment);
         this.frames++;return true;
       }finally{
         if(q){gl.endQuery(this.ext.TIME_ELAPSED_EXT);this.queries.push({q,mode:s.mode,revision,segment});}
@@ -380,13 +424,14 @@
       this.draw('copy',null,t.w,t.h,{source:t.texture});gl.bindFramebuffer(gl.FRAMEBUFFER,null);gl.bindVertexArray(null);gl.activeTexture(gl.TEXTURE0);return true;}
     releasePaced(){const gl=this.gl;for(const [name,t] of Object.entries(this.targets))if(name.startsWith('paced')){gl.deleteTexture(t.texture);gl.deleteFramebuffer(t.fbo);delete this.targets[name];}}
     resetHistory(){this.previous=null;}
-    resetBudget(){for(const item of this.queries)this.gl.deleteQuery(item.q);this.queries=[];this.budget=createBudget();this.resetHistory();}
+    resetBudget(){for(const item of this.queries)this.gl.deleteQuery(item.q);this.queries=[];this.budget=createBudget();this.resetHistory();this.fenceGeneration++;this.fenceValues=[];this.gpuEstimate=null;}
     destroy(){const gl=this.gl;
       for(const t of Object.values(this.targets)){gl.deleteTexture(t.texture);if(t.second)gl.deleteTexture(t.second);gl.deleteFramebuffer(t.fbo);}
       for(const p of Object.values(this.programs))gl.deleteProgram(p.program);
       for(const item of this.queries)gl.deleteQuery(item.q);
+      if(this.fence){gl.deleteSync(this.fence.sync);this.fence=null;}
       gl.deleteTexture(this.input);gl.deleteBuffer(this.buffer);gl.deleteVertexArray(this.vao);this.targets={};this.programs={};this.queries=[];
     }
   }
-  globalThis.BxRestoration={streamSummary,compressionLevel,compressionScales,presets,presetOf,createPacer,createRtpClock,frameStats,applySmoothing,h264Profile,decoderSummary,createDiagnostics,captureVideoStats,downloadReport,Engine,defaults,normalize,historyValid,createBudget,outputSize,resolveOutput};
+  globalThis.BxRestoration={streamSummary,qpFromBitsPerPixel,compressionLevel,compressionScales,presets,presetOf,createPacer,createRtpClock,frameStats,applySmoothing,h264Profile,decoderSummary,createDiagnostics,captureVideoStats,downloadReport,Engine,defaults,normalize,historyValid,createBudget,outputSize,resolveOutput};
 })();

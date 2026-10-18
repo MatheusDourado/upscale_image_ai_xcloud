@@ -27,6 +27,7 @@ probe=r'''
  const viaVideo=await measure(3000);
  check(api.status.origin.missed>0,`Video path skips bunched frames (${api.status.origin.missed} of ${api.status.origin.presented} in 2 s)`);
  check(api.directSupported(),'Track processor and VideoFrame are available');
+ check(await api.startMeasurement(),'Measurement starts on the video path');
  // Record what the pacer schedules after switching sources mid-session (same pacer, new clock).
  const scheduled=[],add=player.bxTiming.pacer.add.bind(player.bxTiming.pacer);player.bxTiming.pacer.add=f=>{scheduled.push(f);return add(f);};
  api.update({capture:'direct'});await wait(800);
@@ -38,6 +39,18 @@ probe=r'''
  check(direct.rendered/direct.produced>viaVideo.rendered/viaVideo.produced+.15,`More frames than the video path (${direct.rendered}/${direct.produced} vs ${viaVideo.rendered}/${viaVideo.produced})`);
  check(api.status.fluidity&&api.status.pacing&&api.status.origin.missed===null,'Pacer runs on capture timestamps; video-element skips no longer apply');
  check(player.gl.getError()===player.gl.NO_ERROR,'VideoFrame upload renders without GL errors');
+ // Measurement across the switch: per-segment intervals without mixed clocks, the Fluidez wait, a timeline
+ // from the real getStats, the GPU method and the file saved through the Android bridge.
+ let savedFile=null;window.BxAndroid={saveFile:(name,mime,text)=>{savedFile={name,mime,text};return 'Downloads/xCloud ImageFilter/'+name;}};
+ const report=await api.exportMeasurement();delete window.BxAndroid;
+ const segs=report.segments,seg=segs.find(s=>s.config.settings.capture==='direct'&&s.display.count>40);
+ check(savedFile&&/^bx-v9\.7\.1-diagnostics-\d+\.json$/.test(savedFile.name)&&JSON.parse(savedFile.text).schema===2,'Measurement is saved through the Android bridge (schema 2)');
+ check(seg&&seg.arrival.count>40&&seg.server.count>40&&seg.wait.count>40,`Direct segment records display, arrival, server and wait intervals (${seg&&[seg.display.count,seg.arrival.count,seg.server.count,seg.wait.count]})`);
+ const longest=Math.max(...segs.flatMap(s=>[s.server.maxMs||0,s.arrival.maxMs||0]));
+ check(longest<500,`No interval spans the switch between clocks (longest ${longest.toFixed(1)} ms)`);
+ check(report.timeline.length>=2&&report.timeline.every(r=>Number.isFinite(r.t))&&report.timeline.some(r=>r.capture==='direct'&&r.fpsReceived>0&&r.bitrateMbps>0),`Timeline has a row per second from getStats (${report.timeline.length} rows)`);
+ check(report.metadata.gpuMethod===(player.bxEngine.ext?'timer':'fence')&&report.metadata.refreshMeasuredHz>20&&report.metadata.betterXcloud&&report.status.capture.active,`Metadata names the GPU method (${report.metadata.gpuMethod}) and the measured refresh (${report.metadata.refreshMeasuredHz} Hz)`);
+ if(!player.bxEngine.ext)check(api.status.gpuEstimate?.count>0&&api.status.gpuEstimate.p95>0&&segs.some(s=>s.gpu.count>0),`Without the GPU timer, fences estimate the GPU time (p95 ${api.status.gpuEstimate?.p95?.toFixed(1)} ms)`);
  // Better xCloud's FPS limit also applies to direct capture.
  player.setTargetFps(10);const capped=await measure(2000);player.setTargetFps(60);
  check(capped.rendered/2<=12&&capped.rendered>=10,`FPS limit of 10 applies to direct capture (${capped.rendered} in 2 s)`);

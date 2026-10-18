@@ -1,4 +1,11 @@
-# Better xCloud — tratamento experimental v9.7
+# Better xCloud — tratamento experimental v9.7.1
+
+A **v9.7.1** corrige o que a primeira medição num aparelho real (Poco F7, Gears of War: E-Day) mostrou:
+- **Adaptar à compressão** funciona sem o QP: o WebView do Android não informa o QP, e a adaptação ficava parada. Agora a compressão é estimada pela taxa de bits por pixel.
+- **Tempo de GPU estimado** quando o navegador não tem cronômetro de GPU.
+- **A medição registra o ritmo:** intervalos de cada quadro na tela, na chegada e no servidor, espera da Fluidez e uma linha do tempo por segundo da rede.
+
+Veja [notas v9.7.1](docs/release-v9.7.1.md).
 
 A **v9.7** prioriza **fluidez, nitidez e tratamento**:
 - **Captura direta:** opcional, com a Fluidez ligada. Lê cada quadro decodificado da trilha WebRTC; quando os quadros chegam juntos, o vídeo exibe só um por atualização da tela e descarta os outros.
@@ -41,9 +48,9 @@ A v7.1 corrige as pendências de degradês, halos e movimento da v7. O caminho p
 
 Para o Vostro 3400 ligado à TV por HDMI 1080p, comece em **saída Automática (resolve para nativa), Nitidez 3–5 no painel, orçamento 6 ms, Cor nas bordas 50%, Detalhe 35%, Degradês 30–50%, temporal e AA desligados**. A TV continua responsável por ampliar o sinal recebido para seu painel 4K. Forçar 4K no canvas não cria informação de uma renderização 4K do jogo, nem muda o sinal HDMI.
 
-## Android (v9.7)
+## Android (v9.7.1)
 
-Há um APK de teste em `android/dist/xcloud-imagefilter-9.7.apk`: um app WebView próprio que abre o xCloud com este userscript (v9.7). Veja [android/README.md](android/README.md).
+Há um APK de teste em `android/dist/xcloud-imagefilter-9.7.1.apk`: um app WebView próprio que abre o xCloud com este userscript (v9.7.1). Veja [android/README.md](android/README.md).
 
 ## Instalar
 
