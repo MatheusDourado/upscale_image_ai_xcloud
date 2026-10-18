@@ -76,6 +76,18 @@ test('compression-adaptive treatment follows a sustained QP change with hysteres
  qp=38;await step(8);assert.equal(a.api.status.adaptive.level,1);assert.ok(a.api.status.adaptive.scales.cleanup>1.3);
  a.api.update({adaptive:false,hud:'off'});const calls=t;await step(2);assert.equal(t,calls,'no getStats while nothing needs telemetry');
 });
+test('without a QP the treatment follows the bits per pixel of the last minute, not quiet seconds',async()=>{
+ const a=adapter();let t=0,frames=0,bytes=0,perSecond=1866240,fps=30; // 0.24 bit/pixel at 1080p30
+ a.context.STATES.currentStream.peerConnection={getReceivers:()=>[],getStats:async()=>{t+=1000;frames+=fps;bytes+=perSecond;
+  return new Map([['v',{id:'v',type:'inbound-rtp',kind:'video',timestamp:t,framesDecoded:frames,bytesReceived:bytes,frameWidth:1920,frameHeight:1080}]]);}};
+ const step=async n=>{for(let i=0;i<n;i++){a.tick();await new Promise(r=>setImmediate(r));}};
+ await step(5);assert.equal(a.api.status.adaptive,null,'five seconds before the first estimate');assert.equal(a.api.status.net.qp,null);
+ await step(1);const first=a.api.status.adaptive;assert.equal(first.source,'bitrate');assert.equal(first.qp,null);assert.equal(first.qpMean,null);
+ assert.ok(Math.abs(first.qpEstimate-24)<1e-9);assert.equal(first.level,.2);assert.ok(first.scales.cleanup<1);
+ perSecond=1866240/8;await step(6);assert.equal(a.api.status.adaptive.level,.2,'quiet seconds below the 80th percentile keep the level');
+ fps=5;perSecond=1e8;await step(3);assert.equal(a.api.status.adaptive.level,.2,'stalled seconds are skipped');
+ fps=30;perSecond=1866240/8;await step(20);assert.equal(a.api.status.adaptive.level,1,'a sustained low bitrate reads as heavy compression');
+});
 test('a new session restarts telemetry and the compression level',async()=>{
  const a=adapter(),session=qp=>{let t=0,frames=0,sum=0;return {getReceivers:()=>[],getStats:async()=>{t+=1000;frames+=30;sum+=qp*30;return new Map([['v',{id:'v',type:'inbound-rtp',kind:'video',timestamp:t,qpSum:sum,framesDecoded:frames}]]);}};};
  const step=async n=>{for(let i=0;i<n;i++){a.tick();await new Promise(r=>setImmediate(r));}};

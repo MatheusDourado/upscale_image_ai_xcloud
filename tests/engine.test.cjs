@@ -215,3 +215,43 @@ test('diagnostics continue a segment when a configuration returns and explain th
  const r=d.report();assert.equal(r.segments.length,2);assert.equal(r.segments[0].frames,10);assert.equal(r.segments[0].durationMs,250);assert.equal(r.segments[0].drawFps,20);
  const e=api().createDiagnostics();e.start();for(let i=0;i<300;i++)e.frame({i},i);assert.equal(e.active,false);assert.match(e.report().stopReason,/limite/);
 });
+test('bits per pixel stand in for a missing QP: neutral at 0.12, 4 QP per doubling, bounded',()=>{
+ const a=api();assert.equal(a.qpFromBitsPerPixel(.12),28);assert.equal(a.qpFromBitsPerPixel(.24),24);assert.equal(a.qpFromBitsPerPixel(.06),32);
+ assert.equal(a.qpFromBitsPerPixel(0),null);assert.equal(a.qpFromBitsPerPixel(NaN),null);assert.equal(a.qpFromBitsPerPixel(1e-9),51);assert.equal(a.qpFromBitsPerPixel(1e9),0);
+ const s=a.streamSummary({timestamp:0,bytesReceived:0,framesDecoded:0},{timestamp:1000,bytesReceived:1555200,framesDecoded:30,frameWidth:1920,frameHeight:1080});
+ assert.ok(Math.abs(s.bitsPerPixel-.2)<1e-12);assert.equal(s.qp,null);
+ assert.equal(a.streamSummary(null,{timestamp:1,bytesReceived:9,framesDecoded:30,frameWidth:1920,frameHeight:1080}).bitsPerPixel,null);
+ assert.equal(a.streamSummary({timestamp:0,bytesReceived:0,framesDecoded:0},{timestamp:1000,bytesReceived:9,framesDecoded:30}).bitsPerPixel,null,'no frame size, no estimate');
+});
+test('measurement keeps display, arrival, server and wait intervals per segment, pacer drops and a timeline',()=>{
+ const d=api().createDiagnostics();d.interval('display',33);d.timeline({x:1});d.dropped(3);
+ d.start({a:1});d.interval('display',33);d.frame({mode:'filtered'},0);
+ for(const v of [33,33,34,33,66,33])d.interval('display',v);
+ d.interval('arrival',30);d.interval('server',33.3333);d.interval('wait',5);d.interval('gpu',1);d.interval('frames',1);d.interval('display',NaN);d.interval('display',-1);
+ d.dropped(2);d.dropped(0);d.timeline({fpsReceived:30,rttMs:20.456,qp:null,capture:'direct',bad:NaN,missing:undefined});d.annotate({refreshMeasuredHz:120});
+ d.frame({mode:'cas'},100);d.interval('display',16);d.stop();d.interval('display',99);d.annotate({late:true});d.timeline({late:1});
+ const r=d.report(),[a,b]=r.segments;
+ assert.equal(r.schema,2);assert.equal(r.version,'9.7.1');assert.equal(r.metadata.a,1);assert.equal(r.metadata.refreshMeasuredHz,120);assert.equal(r.metadata.late,undefined);
+ assert.equal(a.display.count,6);assert.equal(a.display.p50,33);assert.equal(a.display.hitches,1);assert.equal(a.display.maxMs,66);assert.equal(a.display.samplesMs.length,6);
+ assert.equal(a.arrival.count,1);assert.deepEqual([...a.server.samplesMs],[33.33]);assert.equal(a.wait.p95,5);assert.equal(a.pacerDropped,2);assert.equal(a.gpu.count,0);
+ assert.equal(b.display.count,1);assert.equal(b.pacerDropped,0);assert.equal(b.arrival.count,0);assert.equal(b.arrival.p95,null);
+ assert.equal(r.timeline.length,1);const row=r.timeline[0];
+ assert.equal(row.rttMs,20.46);assert.equal(row.qp,null);assert.equal(row.capture,'direct');assert.equal(row.bad,null);assert.equal(row.missing,null);assert.ok(Number.isFinite(row.t));
+ d.start();assert.equal(d.report().timeline.length,0);assert.equal(d.report().segments.length,0);
+});
+test('measurement summaries cover long sessions and the export keeps sample arrays on one line',()=>{
+ const context={globalThis:{}};vm.runInNewContext(fs.readFileSync('src/restoration-engine.js','utf8'),context);const a=context.globalThis.BxRestoration;
+ const d=a.createDiagnostics();d.start();d.frame({},0);
+ for(let i=0;i<310000;i++)d.interval('display',i%100?16.7:33.4);
+ for(let i=0;i<10;i++)d.interval('wait',i);d.skipped(2);d.skipped(0);for(let i=0;i<3601;i++)d.timeline({fpsReceived:60,bitsPerPixel:.123456});
+ const r=d.report(),seg=r.segments[0],x=seg.display;
+ assert.equal(x.count,310000);assert.equal(x.samplesMs.length,300000);assert.equal(x.samplesTruncated,true);assert.equal(x.p50,16.7);assert.equal(x.p99,16.7);assert.equal(x.maxMs,33.4);assert.equal(x.hitches,3100);
+ assert.ok(Math.abs(x.meanMs-(16.7*.99+33.4*.01))<1e-6);assert.ok(Math.abs(x.deviationMs-Math.sqrt(.99*.01)*16.7)<1e-6);
+ assert.equal(seg.wait.count,10,'summaries continue after the raw cap');assert.equal(seg.wait.samplesTruncated,true);assert.equal(seg.wait.hitches,null);assert.equal(seg.wait.p50,4);
+ assert.equal(r.truncated,true);assert.equal(seg.videoSkipped,2);assert.equal(r.timeline.length,3600);assert.equal(r.timeline[0].bitsPerPixel,.1235);
+ let saved=null;context.globalThis.BxAndroid={saveFile:(name,mime,text)=>{saved={name,mime,text};return 'Downloads/xCloud ImageFilter/'+name;}};
+ const small=a.createDiagnostics();small.start();small.frame({},0);for(const v of [16.7,16.6,33.3])small.interval('display',v);
+ assert.equal(a.downloadReport(small.report()),'Downloads/xCloud ImageFilter/'+saved.name);
+ assert.match(saved.name,/^bx-v9\.7\.1-diagnostics-\d+\.json$/);assert.match(saved.text,/"samplesMs": \[16\.7,16\.6,33\.3\]/);assert.match(saved.text,/"samplesMs": \[\]/);
+ const back=JSON.parse(saved.text);assert.equal(back.segments[0].display.count,3);assert.equal(back.truncated,false);assert.equal(back.sampleLimit.intervals,300000);
+});

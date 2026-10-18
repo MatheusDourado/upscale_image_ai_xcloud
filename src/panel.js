@@ -5,7 +5,7 @@
 // every action a <button>; nothing uses <select>, <svg> or the bx-focusable class.
 (() => {
  const api = window.BxImageFilter, settings = api.settings, status = api.status, doc = document;
- const VERSION = 'v9.7';
+ const VERSION = 'v9.7.1';
  const num = v => typeof v === 'number' && Number.isFinite(v);
 
  /* =============================== api.ui =============================== */
@@ -52,6 +52,9 @@
    case 'buffer': { const r = c.r || 0; return lo(Math.max(40, r + 15), Math.max(60, r + 40)); }
    case 'decode': return lo(9, 12);
    case 'gpu': { const L = c.L || 10; return lo(.66 * L, L); }
+   // Fence estimate (no GPU timer): time until the GPU finished a frame. Frames overlap in the GPU queue,
+   // so a frame can take longer than its interval without losing FPS; over two intervals it falls behind.
+   case 'gpu-est': return lo(T, 2 * T);
    case 'total': return lo(70, 110);
    case 'bitrate': return c.height >= 1000 ? hi(12, 7) : hi(6, 3.5);
    // QP 28 is the neutral level of the compression adaptation: typical streams read good.
@@ -86,7 +89,8 @@
  function latency() {
   const n = status.net, on = api.active, v = k => n && num(n[k]) ? n[k] : null;
   const rtt = v('rttMs'), buffer = v('bufferMs'), decode = v('decodeMs');
-  const gpu = on && status.measurement === 'gpu' && num(status.gpuP95) ? status.gpuP95 : 0;
+  // Without a GPU timer, the fence estimate's median: the time until the GPU finished the frame.
+  const gpu = !on ? 0 : status.measurement === 'gpu' ? (num(status.gpuP95) ? status.gpuP95 : 0) : num(status.gpuEstimate?.p50) ? status.gpuEstimate.p50 : 0;
   const wait = on && status.fluidity && num(status.fluidity.extraMs) ? status.fluidity.extraMs : 0;
   return {rtt, buffer, decode, gpu, wait, total: rtt === null ? null : rtt + (buffer || 0) + (decode || 0) + gpu + wait};
  }
@@ -180,14 +184,18 @@
   s.gDev = grade('dev', p?.deviationMs, s); s.gP95 = grade('p95', p?.p95Ms, s); s.gHit = grade('count', p?.hitches);
   s.missed = o && num(o.missed) ? o.missed : null;
   s.gMiss = s.missed === null ? (s.direct ? 'good' : 'none') : grade('count', s.missed);
-  s.gSrv = grade('dev', o?.server?.deviationMs, s); s.gArr = grade('dev', o?.arrival?.deviationMs, s);
+  s.gSrv = grade('dev', o?.server?.deviationMs, s); s.gArr = o && o.arrivalNetwork === false ? 'none' : grade('dev', o?.arrival?.deviationMs, s);
   s.gWait = fl ? grade('wait', fl.extraMs, s) : 'none';
   s.gRtt = grade('rtt', lat.rtt); s.gBuf = grade('buffer', lat.buffer, {r: settings.smoothing}); s.gDec = grade('decode', lat.decode);
   s.gDecoder = grade('decoder', n?.decoder); s.gTotal = grade('total', lat.total);
   s.gpu = on && status.measurement === 'gpu' && num(status.gpuP95) ? status.gpuP95 : null;
   s.L = settings.gpuBudget || 10; s.gGpu = grade('gpu', s.gpu, {L: s.L});
+  s.gpuEst = on && status.measurement !== 'gpu' && num(status.gpuEstimate?.p95) ? status.gpuEstimate.p95 : null; s.gGpuEst = grade('gpu-est', s.gpuEst, {T});
+  s.gpuShow = s.gpu !== null ? s.gpu : s.gpuEst; s.gGpuShow = s.gpu !== null ? s.gGpu : s.gGpuEst;
   s.gBitrate = grade('bitrate', n?.bitrateMbps, {height: n?.height});
   s.qp = num(status.adaptive?.qpMean) ? status.adaptive.qpMean : n && num(n.qp) ? n.qp : null; s.gQp = grade('qp', s.qp);
+  // Bitrate estimate when the browser reports no QP (Android WebView): shown as "≈", never as a QP reading.
+  s.qpEst = s.qp === null && status.adaptive?.source === 'bitrate' && num(status.adaptive.qpEstimate) ? status.adaptive.qpEstimate : null;
   s.gLoss = grade('loss', n?.lossPct); s.gHeight = grade('height', n?.height);
   s.gCapture = s.direct ? 'good' : settings.fluidity !== 'off' && settings.capture === 'direct' ? 'ok' : 'none';
   let lv = 0; for (const w of status.warnings || []) lv = Math.max(lv, LEVEL[w.level] || 0);
@@ -1020,7 +1028,7 @@
   else { setParts(s2.sum, [[(preset ? preset.label : 'Personalizado') + ' · Nitidez ' + fmt(settings.sharpness, 1), null]]); setA(s2.sum, 'data-g', null); }
   const active = TREAT.filter(k => settings[k] > 0).length;
   setParts(s3.sum, [[`${active} de 7 ativos` + (adaptiveApplying() ? ' · adaptado' : ''), null]]);
-  setParts(s4.sum, [['GPU ', null], [s.gpu === null ? '—' : fmtMs(s.gpu) + ' ms', G('gpu', s.gGpu)], [' · Lat. ', null], [s.lat.total === null ? '—' : fmtInt(s.lat.total) + ' ms', G('total', s.gTotal)]]);
+  setParts(s4.sum, [['GPU ', null], [s.gpuShow === null ? '—' : (s.gpu === null ? '≈' : '') + fmtMs(s.gpuShow) + ' ms', G(s.gpu !== null ? 'gpu' : 'gpu-est', s.gGpuShow)], [' · Lat. ', null], [s.lat.total === null ? '—' : fmtInt(s.lat.total) + ' ms', G('total', s.gTotal)]]);
   if (api.measuring) { setParts(s5.sum, [['Medindo ' + (clock() || '…'), null]]); setA(s5.sum, 'data-g', 'ok'); }
   else if (api.diagnostic) { setParts(s5.sum, [['Diagnóstico ligado', null]]); setA(s5.sum, 'data-g', 'info'); }
   else { setParts(s5.sum, [['Indicadores: ' + ({off: 'desligados', compact: 'Compacto', full: 'Completo'}[settings.hud] || ''), null]]); setA(s5.sum, 'data-g', null); }
@@ -1064,13 +1072,14 @@
   const a = status.adaptive;
   if (!valueOf('adaptive')) { setParts(els.adaptiveOut, [['Desligado: usa os valores do Ajuste fino.', 'lab']]); setA(els.qpPos, 'data-hide', ''); return; }
   if (settings.mode !== 'filtered') setParts(els.adaptiveOut, [['Pausado durante a Comparação.', 'ok']]);
-  else if (!a) setParts(els.adaptiveOut, [['Aguardando o QP do stream…', 'lab']]);
+  else if (!a) setParts(els.adaptiveOut, [[status.net && num(status.net.bitrateMbps) && !num(status.net.qp) ? 'Este aparelho não informa o QP: estimando pela taxa de bits…' : 'Aguardando o QP do stream…', 'lab']]);
   else {
-   const k = a.scales || {};
-   setParts(els.adaptiveOut, [['QP ', 'lab'], [fmtInt(a.qp), G('qp-now', grade('qp', a.qp))], [' · médio ', 'lab'], [fmt(a.qpMean, 1), G('qp', s.gQp)], [' · nível ', 'lab'], [fmt(a.level, 1), null],
-    [' → limpeza ×' + fmt(k.cleanup, 2) + ' · degradês ×' + fmt(k.deband, 2) + ' · detalhe ×' + fmt(k.detail, 2), 'lab']]);
+   const k = a.scales || {}, scales = [' → limpeza ×' + fmt(k.cleanup, 2) + ' · degradês ×' + fmt(k.deband, 2) + ' · detalhe ×' + fmt(k.detail, 2), 'lab'];
+   if (a.source === 'bitrate') setParts(els.adaptiveOut, [['Estimado pela taxa de bits (sem QP neste aparelho): ', 'lab'], [fmt(a.bitsPerPixel, 2) + ' bit/pixel', null], [' ≈ QP ', 'lab'], [fmtInt(a.qpEstimate), G('qp', grade('qp', a.qpEstimate))], [' · nível ', 'lab'], [fmt(a.level, 1), null], scales]);
+   else setParts(els.adaptiveOut, [['QP ', 'lab'], [fmtInt(a.qp), G('qp-now', grade('qp', a.qp))], [' · médio ', 'lab'], [fmt(a.qpMean, 1), G('qp', s.gQp)], [' · nível ', 'lab'], [fmt(a.level, 1), null], scales]);
   }
-  if (a && num(a.qpMean)) { setA(els.qpPos, 'data-hide', null); setS(els.qpPos, 'transform', `translateX(${(Math.min(1, Math.max(0, (a.qpMean - 20) / 16)) * 100).toFixed(1)}%)`); }
+  const pos = a && num(a.qpMean) ? a.qpMean : a && num(a.qpEstimate) ? a.qpEstimate : null;
+  if (pos !== null) { setA(els.qpPos, 'data-hide', null); setS(els.qpPos, 'transform', `translateX(${(Math.min(1, Math.max(0, (pos - 20) / 16)) * 100).toFixed(1)}%)`); }
   else setA(els.qpPos, 'data-hide', '');
  }
  function updateAjuste() {
@@ -1087,7 +1096,15 @@
  }
  function updateDesempenho(s) {
   const L = settings.gpuBudget || 10, gpuG = G('gpu', s.gGpu);
-  if (status.measurement === 'cadence' && s.on) {
+  if (status.measurement === 'cadence' && s.on && s.gpuEst !== null) {
+   // Fence estimate against the frame interval (33 ms at 30 FPS): an upper bound, it includes queued work.
+   const T = 1000 / s.N, scaleMax = Math.max(2 * T, s.gpuEst), g = G('gpu-est', s.gGpuEst);
+   setA(els.gpuMeter, 'data-hide', null);
+   setT(els.gpuText, `≈${fmtMs(s.gpuEst)} ms de ${fmtInt(T)} ms por quadro`); setA(els.gpuText, 'data-g', g);
+   setS(els.gpuFill, 'transform', `scaleX(${(s.gpuEst / scaleMax).toFixed(3)})`); setA(els.gpuFill, 'data-g', g);
+   setS(els.gpuTick, 'transform', `translateX(${(T / scaleMax * 100).toFixed(1)}%)`);
+   setT(els.gpuNote, 'Estimado (sem cronômetro de GPU neste navegador): até a GPU concluir o quadro, com a fila. A redução automática segue a cadência.'); setA(els.gpuNote, 'data-hide', null);
+  } else if (status.measurement === 'cadence' && s.on) {
    setT(els.gpuText, '—'); setA(els.gpuText, 'data-g', 'none'); setS(els.gpuFill, 'transform', 'scaleX(0)'); setA(els.gpuMeter, 'data-hide', '');
    setT(els.gpuNote, 'Sem cronômetro de GPU neste navegador: adapta pela cadência.'); setA(els.gpuNote, 'data-hide', null);
   } else {
@@ -1102,7 +1119,7 @@
   const lat = s.lat, flOn = valueOf('fluidity') !== 'off', segs = [lat.rtt, lat.buffer, lat.decode, lat.gpu, flOn ? lat.wait : 0];
   [...els.latBar.children].forEach((sp, i) => setS(sp, 'flex-grow', String(num(segs[i]) ? Math.max(0, +segs[i].toFixed(1)) : 0)));
   setT(els.latTotal, lat.total === null ? '—' : '≈' + fmtInt(lat.total) + ' ms'); setA(els.latTotal, 'data-g', G('total', s.gTotal));
-  const legend = [[lat.rtt, 'rtt', s.gRtt], [lat.buffer, 'buf', s.gBuf], [lat.decode, 'dec', s.gDec], [s.gpu, 'gpu', s.gGpu], [s.fl ? s.fl.extraMs : null, 'wait', s.gWait]];
+  const legend = [[lat.rtt, 'rtt', s.gRtt], [lat.buffer, 'buf', s.gBuf], [lat.decode, 'dec', s.gDec], [s.gpu !== null ? s.gpu : s.gpuEst !== null ? lat.gpu : null, s.gpu !== null ? 'gpu' : 'gpu-est', s.gGpuShow], [s.fl ? s.fl.extraMs : null, 'wait', s.gWait]];
   legend.forEach(([v, key, g], i) => { setT(els.leg[i].v, num(v) ? fmtMs(v) + ' ms' : '—'); setA(els.leg[i].v, 'data-g', num(v) ? G(key, g) : 'none'); });
   setA(els.leg[4].row, 'data-hide', flOn ? null : '');
   const n = s.net;
@@ -1111,7 +1128,7 @@
   setParts(els.decoder, [['Decodificação ', 'lab'], [{hardware: 'hardware', software: 'software (CPU)'}[n.decoder] || 'não informada', G('dec-kind', s.gDecoder)],
    [(n.implementation ? ' (' + n.implementation + ')' : '') + ' · ', null], [fmtMs(n.decodeMs) + ' ms', G('dec', s.gDec)]]);
   setParts(els.quality, [['Bitrate ', 'lab'], [num(n.bitrateMbps) ? fmt(n.bitrateMbps, 1) + ' Mb/s' : '—', G('bitrate', s.gBitrate)], [' · perda ', 'lab'], [num(n.lossPct) ? fmt(n.lossPct, 1) + '%' : '—', G('loss', s.gLoss)],
-   [' · QP ', 'lab'], [fmtInt(s.qp), G('qp', s.gQp)]]);
+   ...(s.qpEst !== null ? [[' · QP ', 'lab'], ['≈' + fmtInt(s.qpEst) + ' (pela taxa de bits)', G('qp', grade('qp', s.qpEst))]] : [[' · QP ', 'lab'], [fmtInt(s.qp), G('qp', s.gQp)]])]);
   setParts(els.drops, [['Decodificador (1 s): ', 'lab'], [fmtInt(n.framesDropped) + ' descartados', n.framesDropped > 0 ? 'ok' : null], [' · ', 'lab'], [fmtInt(n.freezes) + ' congelamentos', n.freezes > 0 ? 'ok' : null]]);
  }
  function updateMeasure() {

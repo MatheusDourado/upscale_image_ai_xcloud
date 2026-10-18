@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Better xCloud — Image Filter Experimental
 // @namespace    https://github.com/redphx
-// @version      6.7.12-imagefilter.9.7
+// @version      6.7.12-imagefilter.9.7.1
 // @description  Improve Xbox Cloud Gaming (xCloud) experience
 // @author       redphx
 // @license      MIT
@@ -263,7 +263,7 @@ function patchSdpBitrate(sdp, video, audio) {let lines = sdp.split(`\r
 class WebGL2Player extends BaseCanvasPlayer {gl = null;resources = [];program = null;constructor($video) {super("webgl2", $video, "WebGL2Player");}updateCanvas() {console.log("updateCanvas", this.options);let gl = this.gl, program = this.program, filterId = this.toFilterId(this.options.processing);gl.uniform2f(gl.getUniformLocation(program, "iResolution"), this.$canvas.width, this.$canvas.height), gl.uniform1i(gl.getUniformLocation(program, "filterId"), filterId), gl.uniform1i(gl.getUniformLocation(program, "qualityMode"), this.options.processingMode === "quality" ? 1 : 0), gl.uniform1f(gl.getUniformLocation(program, "sharpenFactor"), this.options.sharpness / (this.options.processingMode === "quality" ? 1 : 1.2)), gl.uniform1f(gl.getUniformLocation(program, "brightness"), this.options.brightness / 100), gl.uniform1f(gl.getUniformLocation(program, "contrast"), this.options.contrast / 100), gl.uniform1f(gl.getUniformLocation(program, "saturation"), this.options.saturation / 100);}updateFrame() {let gl = this.gl;gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, gl.RGB, gl.UNSIGNED_BYTE, this.$video), gl.drawArrays(gl.TRIANGLES, 0, 3);}async setupShaders() {let gl = this.$canvas.getContext("webgl2", {isBx: !0,antialias: !0,alpha: !1,depth: !1,preserveDrawingBuffer: !1,stencil: !1,powerPreference: getStreamPref("video.player.powerPreference")});this.gl = gl, gl.viewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferWidth);let vShader = gl.createShader(gl.VERTEX_SHADER);gl.shaderSource(vShader, `#version 300 es
 in vec4 position;void main() {gl_Position = position;}`), gl.compileShader(vShader);let fShader = gl.createShader(gl.FRAGMENT_SHADER);gl.shaderSource(fShader, `#version 300 es
 precision mediump float;uniform sampler2D data;uniform vec2 iResolution;const int FILTER_UNSHARP_MASKING = 1;const int FILTER_CAS = 2;const float CAS_CONTRAST_PEAK = 0.8 * -3.0 + 8.0;const vec3 LUMINOSITY_FACTOR = vec3(0.299, 0.587, 0.114);uniform int filterId;uniform bool qualityMode;uniform float sharpenFactor;uniform float brightness;uniform float contrast;uniform float saturation;out vec4 fragColor;vec3 clarityBoost(sampler2D tex, vec2 coord, vec3 e) {vec2 texelSize = 1.0 / iResolution.xy;vec3 b = texture(tex, coord + texelSize * vec2(0, 1)).rgb;vec3 d = texture(tex, coord + texelSize * vec2(-1, 0)).rgb;vec3 f = texture(tex, coord + texelSize * vec2(1, 0)).rgb;vec3 h = texture(tex, coord + texelSize * vec2(0, -1)).rgb;vec3 a;vec3 c;vec3 g;vec3 i;if (filterId == FILTER_UNSHARP_MASKING || qualityMode) {a = texture(tex, coord + texelSize * vec2(-1, 1)).rgb;c = texture(tex, coord + texelSize * vec2(1, 1)).rgb;g = texture(tex, coord + texelSize * vec2(-1, -1)).rgb;i = texture(tex, coord + texelSize * vec2(1, -1)).rgb;}if (filterId == FILTER_UNSHARP_MASKING) {vec3 gaussianBlur = (a + c + g + i) * 1.0 + (b + d + f + h) * 2.0 + e * 4.0;gaussianBlur /= 16.0;return e + (e - gaussianBlur) * sharpenFactor / 3.0;}vec3 minRgb = min(min(min(d, e), min(f, b)), h);vec3 maxRgb = max(max(max(d, e), max(f, b)), h);if (qualityMode) {minRgb += min(min(a, c), min(g, i));maxRgb += max(max(a, c), max(g, i));}vec3 reciprocalMaxRgb = 1.0 / maxRgb;vec3 amplifyRgb = clamp(min(minRgb, 2.0 - maxRgb) * reciprocalMaxRgb, 0.0, 1.0);amplifyRgb = inversesqrt(amplifyRgb);vec3 weightRgb = -(1.0 / (amplifyRgb * CAS_CONTRAST_PEAK));vec3 reciprocalWeightRgb = 1.0 / (4.0 * weightRgb + 1.0);vec3 window = b + d + f + h;vec3 outColor = clamp((window * weightRgb + e) * reciprocalWeightRgb, 0.0, 1.0);return mix(e, outColor, sharpenFactor / 2.0);}void main() {vec2 uv = gl_FragCoord.xy / iResolution.xy;vec3 color = texture(data, uv).rgb;if (sharpenFactor > 0.0) {color = clarityBoost(data, uv, color);}color = mix(vec3(dot(color, LUMINOSITY_FACTOR)), color, saturation);color = contrast * (color - 0.5) + 0.5;color = brightness * color;fragColor = vec4(color, 1.0);}`), gl.compileShader(fShader);let program = gl.createProgram();if (this.program = program, gl.attachShader(program, vShader), gl.attachShader(program, fShader), gl.linkProgram(program), gl.useProgram(program), !gl.getProgramParameter(program, gl.LINK_STATUS)) console.error(`Link failed: ${gl.getProgramInfoLog(program)}`), console.error(`vs info-log: ${gl.getShaderInfoLog(vShader)}`), console.error(`fs info-log: ${gl.getShaderInfoLog(fShader)}`);this.updateCanvas();let buffer = gl.createBuffer();this.resources.push(buffer), gl.bindBuffer(gl.ARRAY_BUFFER, buffer), gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1,3,-1,-1,3]), gl.STATIC_DRAW), gl.enableVertexAttribArray(0), gl.vertexAttribPointer(0, 2, gl.FLOAT, !1, 0, 0);let texture = gl.createTexture();this.resources.push(texture), gl.bindTexture(gl.TEXTURE_2D, texture), gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, !0), gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE), gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE), gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR), gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR), gl.uniform1i(gl.getUniformLocation(program, "data"), 0), gl.activeTexture(gl.TEXTURE0);}destroy() {super.destroy();let gl = this.gl;if (!gl) return;gl.getExtension("WEBGL_lose_context")?.loseContext(), gl.useProgram(null);for (let resource of this.resources)if (resource instanceof WebGLProgram) gl.deleteProgram(resource);else if (resource instanceof WebGLShader) gl.deleteShader(resource);else if (resource instanceof WebGLTexture) gl.deleteTexture(resource);else if (resource instanceof WebGLBuffer) gl.deleteBuffer(resource);this.gl = null;}refreshPlayer() {this.updateCanvas();}}
-globalThis.BxBuild={"version": "6.7.12-imagefilter.9.7", "sourceSha256": "84d2446a9575c779c30f447708bd5fe9e1827a7cdb63fc7b0810423ec857b842"};
+globalThis.BxBuild={"version": "6.7.12-imagefilter.9.7.1", "sourceSha256": "3e722089e3ff727cb0fc45fdfb443e5484682561d4d2a81259eae57b50667647"};
 globalThis.BxShaders={"antialias": "#version 300 es\nprecision highp float;\nprecision highp sampler2D;\nuniform sampler2D source;\nuniform float amount;\nout vec4 fragColor;\nfloat luminance(vec3 c){return dot(c,vec3(.2126,.7152,.0722));}\nvoid main(){\n vec2 stepSize=1./vec2(textureSize(source,0)),uv=gl_FragCoord.xy*stepSize;\n vec3 center=texture(source,uv).rgb;\n float nw=luminance(texture(source,uv+vec2(-1,1)*stepSize).rgb);\n float ne=luminance(texture(source,uv+vec2(1,1)*stepSize).rgb);\n float sw=luminance(texture(source,uv+vec2(-1,-1)*stepSize).rgb);\n float se=luminance(texture(source,uv+vec2(1,-1)*stepSize).rgb);\n float mid=luminance(center),lo=min(mid,min(min(nw,ne),min(sw,se))),hi=max(mid,max(max(nw,ne),max(sw,se)));\n float contrast=hi-lo;\n // Directional post-process AA: only high-contrast slanted edges are blended.\n // Flat regions and axis-aligned edges retain their original samples.\n vec2 direction=vec2(-(nw+ne-sw-se),nw+sw-ne-se);\n float major=max(abs(direction.x),abs(direction.y));\n float diagonal=min(abs(direction.x),abs(direction.y))/max(major,.00001);\n float weight=amount*smoothstep(.04,.15,contrast)*smoothstep(.05,.35,diagonal);\n if(weight<=0.){fragColor=vec4(center,1);return;}\n direction=direction/max(major,.00001)*stepSize;\n vec3 smoothColor=(texture(source,uv-direction*.5).rgb+texture(source,uv+direction*.5).rgb)*.5;\n // Clamp to the observed neighborhood to prevent new ringing.\n float smoothLum=luminance(smoothColor);\n if(smoothLum<lo||smoothLum>hi)smoothColor=center;\n fragColor=vec4(mix(center,smoothColor,weight),1);\n}\n", "copy": "#version 300 es\nprecision highp float;\nprecision highp sampler2D;\nuniform sampler2D source;\nuniform vec2 outputSize;\nout vec4 fragColor;\nvoid main(){fragColor=vec4(texture(source,gl_FragCoord.xy/outputSize).rgb,1);}\n", "cut": "#version 300 es\nprecision highp float;\nprecision highp sampler2D;\nuniform sampler2D source, previous;\nout vec4 fragColor;\nvoid main(){float difference=0.;for(int y=0;y<16;y++)for(int x=0;x<16;x++){\n vec2 uv=(vec2(x,y)+.5)/16.;vec3 d=abs(texture(source,uv).rgb-texture(previous,uv).rgb);\n difference+=dot(d,vec3(.2126,.7152,.0722))/256.;\n}fragColor=vec4(difference,0,0,1);}\n", "easu": "#version 300 es\nprecision highp float;\nprecision highp sampler2D;\nuniform sampler2D source;uniform vec2 outputSize;out vec4 fragColor;\nfloat safeRcp(float x){return 1./max(x,1e-8);}float safeRsq(float x){return inversesqrt(max(x,1e-8));}\nfloat saturate(float x){return clamp(x,0.,1.);}vec3 min3(vec3 a,vec3 b,vec3 c){return min(a,min(b,c));}vec3 max3(vec3 a,vec3 b,vec3 c){return max(a,max(b,c));}\n// WebGL2 has no textureGather. Fetch each texel once (RGB) and split channels in gather order.\nvoid gatherRGB(vec2 uv,out vec4 r,out vec4 g,out vec4 b){ivec2 size=textureSize(source,0);ivec2 p=ivec2(floor(uv*vec2(size)-.5));\n vec3 t0=texelFetch(source,clamp(p+ivec2(0,1),ivec2(0),size-1),0).rgb,t1=texelFetch(source,clamp(p+ivec2(1,1),ivec2(0),size-1),0).rgb;\n vec3 t2=texelFetch(source,clamp(p+ivec2(1,0),ivec2(0),size-1),0).rgb,t3=texelFetch(source,clamp(p,ivec2(0),size-1),0).rgb;\n r=vec4(t0.r,t1.r,t2.r,t3.r);g=vec4(t0.g,t1.g,t2.g,t3.g);b=vec4(t0.b,t1.b,t2.b,t3.b);}\n\n// FidelityFX Super Resolution Sample\n//\n// Copyright (c) 2021 Advanced Micro Devices, Inc. All rights reserved.\n// Permission is hereby granted, free of charge, to any person obtaining a copy\n// of this software and associated documentation files(the \"Software\"), to deal\n// in the Software without restriction, including without limitation the rights\n// to use, copy, modify, merge, publish, distribute, sublicense, and / or sell\n// copies of the Software, and to permit persons to whom the Software is\n// furnished to do so, subject to the following conditions :\n// The above copyright notice and this permission notice shall be included in\n// all copies or substantial portions of the Software.\n// THE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\n// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\n// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.IN NO EVENT SHALL THE\n// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\n// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\n// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN\n// THE SOFTWARE.\n void FsrEasuTapF(\n inout vec3 aC, // Accumulated color, with negative lobe.\n inout float aW, // Accumulated weight.\n vec2 off, // Pixel offset from resolve position to tap.\n vec2 dir, // Gradient direction.\n vec2 len, // Length.\n float lob, // Negative lobe strength.\n float clp, // Clipping point.\n vec3 c){ // Tap color.\n  // Rotate offset by direction.\n  vec2 v;\n  v.x=(off.x*( dir.x))+(off.y*dir.y);\n  v.y=(off.x*(-dir.y))+(off.y*dir.x);\n  // Anisotropy.\n  v*=len;\n  // Compute distance^2.\n  float d2=v.x*v.x+v.y*v.y;\n  // Limit to the window as at corner, 2 taps can easily be outside.\n  d2=min(d2,clp);\n  // Approximation of lancos2 without sin() or rcp(), or sqrt() to get x.\n  //  (25/16 * (2/5 * x^2 - 1)^2 - (25/16 - 1)) * (1/4 * x^2 - 1)^2\n  //  |_______________________________________|   |_______________|\n  //                   base                             window\n  // The general form of the 'base' is,\n  //  (a*(b*x^2-1)^2-(a-1))\n  // Where 'a=1/(2*b-b^2)' and 'b' moves around the negative lobe.\n  float wB=float(2.0/5.0)*d2+float(-1.0);\n  float wA=lob*d2+float(-1.0);\n  wB*=wB;\n  wA*=wA;\n  wB=float(25.0/16.0)*wB+float(-(25.0/16.0-1.0));\n  float w=wB*wA;\n  // Do weighted average.\n  aC+=c*w;aW+=w;}\n//------------------------------------------------------------------------------------------------------------------------------\n // Accumulate direction and length.\n void FsrEasuSetF(\n inout vec2 dir,\n inout float len,\n vec2 pp,\n bool biS,bool biT,bool biU,bool biV,\n float lA,float lB,float lC,float lD,float lE){\n  // Compute bilinear weight, branches factor out as predicates are compiler time immediates.\n  //  s t\n  //  u v\n  float w = float(0.0);\n  if(biS)w=(float(1.0)-pp.x)*(float(1.0)-pp.y);\n  if(biT)w=           pp.x *(float(1.0)-pp.y);\n  if(biU)w=(float(1.0)-pp.x)*           pp.y ;\n  if(biV)w=           pp.x *           pp.y ;\n  // Direction is the '+' diff.\n  //    a\n  //  b c d\n  //    e\n  // Then takes magnitude from abs average of both sides of 'c'.\n  // Length converts gradient reversal to 0, smoothly to non-reversal at 1, shaped, then adding horz and vert terms.\n  float dc=lD-lC;\n  float cb=lC-lB;\n  float lenX=max(abs(dc),abs(cb));\n  lenX=safeRcp(lenX);\n  float dirX=lD-lB;\n  dir.x+=dirX*w;\n  lenX=saturate(abs(dirX)*lenX);\n  lenX*=lenX;\n  len+=lenX*w;\n  // Repeat for the y axis.\n  float ec=lE-lC;\n  float ca=lC-lA;\n  float lenY=max(abs(ec),abs(ca));\n  lenY=safeRcp(lenY);\n  float dirY=lE-lA;\n  dir.y+=dirY*w;\n  lenY=saturate(abs(dirY)*lenY);\n  lenY*=lenY;\n  len+=lenY*w;}\n//------------------------------------------------------------------------------------------------------------------------------\n void FsrEasuF(\n out vec3 pix,\n vec2 ip, // Integer pixel position in output.\n vec4 con0, // Constants generated by FsrEasuCon().\n vec4 con1,\n vec4 con2,\n vec4 con3){\n//------------------------------------------------------------------------------------------------------------------------------\n  // Get position of 'f'.\n  vec2 pp=vec2(ip)*vec2(con0.xy)+vec2(con0.zw);\n  vec2 fp=floor(pp);\n  pp-=fp;\n//------------------------------------------------------------------------------------------------------------------------------\n  // 12-tap kernel.\n  //    b c\n  //  e f g h\n  //  i j k l\n  //    n o\n  // Gather 4 ordering.\n  //  a b\n  //  r g\n  // For packed FP16, need either {rg} or {ab} so using the following setup for gather in all versions,\n  //    a b    <- unused (z)\n  //    r g\n  //  a b a b\n  //  r g r g\n  //    a b\n  //    r g    <- unused (z)\n  // Allowing dead-code removal to remove the 'z's.\n  vec2 p0=fp*vec2(con1.xy)+vec2(con1.zw);\n  // These are from p0 to avoid pulling two constants on pre-Navi hardware.\n  vec2 p1=p0+vec2(con2.xy);\n  vec2 p2=p0+vec2(con2.zw);\n  vec2 p3=p0+vec2(con3.xy);\n  vec4 bczzR,bczzG,bczzB,ijfeR,ijfeG,ijfeB,klhgR,klhgG,klhgB,zzonR,zzonG,zzonB;\n  gatherRGB(p0,bczzR,bczzG,bczzB);\n  gatherRGB(p1,ijfeR,ijfeG,ijfeB);\n  gatherRGB(p2,klhgR,klhgG,klhgB);\n  gatherRGB(p3,zzonR,zzonG,zzonB);\n//------------------------------------------------------------------------------------------------------------------------------\n  // Simplest multi-channel approximate luma possible (luma times 2, in 2 FMA/MAD).\n  vec4 bczzL=bczzB*vec4(0.5)+(bczzR*vec4(0.5)+bczzG);\n  vec4 ijfeL=ijfeB*vec4(0.5)+(ijfeR*vec4(0.5)+ijfeG);\n  vec4 klhgL=klhgB*vec4(0.5)+(klhgR*vec4(0.5)+klhgG);\n  vec4 zzonL=zzonB*vec4(0.5)+(zzonR*vec4(0.5)+zzonG);\n  // Rename.\n  float bL=bczzL.x;\n  float cL=bczzL.y;\n  float iL=ijfeL.x;\n  float jL=ijfeL.y;\n  float fL=ijfeL.z;\n  float eL=ijfeL.w;\n  float kL=klhgL.x;\n  float lL=klhgL.y;\n  float hL=klhgL.z;\n  float gL=klhgL.w;\n  float oL=zzonL.z;\n  float nL=zzonL.w;\n  // Accumulate for bilinear interpolation.\n  vec2 dir=vec2(0.0);\n  float len=float(0.0);\n  FsrEasuSetF(dir,len,pp,true, false,false,false,bL,eL,fL,gL,jL);\n  FsrEasuSetF(dir,len,pp,false,true ,false,false,cL,fL,gL,hL,kL);\n  FsrEasuSetF(dir,len,pp,false,false,true ,false,fL,iL,jL,kL,nL);\n  FsrEasuSetF(dir,len,pp,false,false,false,true ,gL,jL,kL,lL,oL);\n//------------------------------------------------------------------------------------------------------------------------------\n  // Normalize with approximation, and cleanup close to zero.\n  vec2 dir2=dir*dir;\n  float dirR=dir2.x+dir2.y;\n  bool zro=dirR<float(1.0/32768.0);\n  dirR=safeRsq(dirR);\n  dirR=zro?float(1.0):dirR;\n  dir.x=zro?float(1.0):dir.x;\n  dir*=vec2(dirR);\n  // Transform from {0 to 2} to {0 to 1} range, and shape with square.\n  len=len*float(0.5);\n  len*=len;\n  // Stretch kernel {1.0 vert|horz, to sqrt(2.0) on diagonal}.\n  float stretch=(dir.x*dir.x+dir.y*dir.y)*safeRcp(max(abs(dir.x),abs(dir.y)));\n  // Anisotropic length after rotation,\n  //  x := 1.0 lerp to 'stretch' on edges\n  //  y := 1.0 lerp to 2x on edges\n  vec2 len2=vec2(float(1.0)+(stretch-float(1.0))*len,float(1.0)+float(-0.5)*len);\n  // Based on the amount of 'edge',\n  // the window shifts from +/-{sqrt(2.0) to slightly beyond 2.0}.\n  float lob=float(0.5)+float((1.0/4.0-0.04)-0.5)*len;\n  // Set distance^2 clipping point to the end of the adjustable window.\n  float clp=safeRcp(lob);\n//------------------------------------------------------------------------------------------------------------------------------\n  // Accumulation mixed with min/max of 4 nearest.\n  //    b c\n  //  e f g h\n  //  i j k l\n  //    n o\n  vec3 min4=min(min3(vec3(ijfeR.z,ijfeG.z,ijfeB.z),vec3(klhgR.w,klhgG.w,klhgB.w),vec3(ijfeR.y,ijfeG.y,ijfeB.y)),\n               vec3(klhgR.x,klhgG.x,klhgB.x));\n  vec3 max4=max(max3(vec3(ijfeR.z,ijfeG.z,ijfeB.z),vec3(klhgR.w,klhgG.w,klhgB.w),vec3(ijfeR.y,ijfeG.y,ijfeB.y)),\n               vec3(klhgR.x,klhgG.x,klhgB.x));\n  // Accumulation.\n  vec3 aC=vec3(0.0);\n  float aW=float(0.0);\n  FsrEasuTapF(aC,aW,vec2( 0.0,-1.0)-pp,dir,len2,lob,clp,vec3(bczzR.x,bczzG.x,bczzB.x)); // b\n  FsrEasuTapF(aC,aW,vec2( 1.0,-1.0)-pp,dir,len2,lob,clp,vec3(bczzR.y,bczzG.y,bczzB.y)); // c\n  FsrEasuTapF(aC,aW,vec2(-1.0, 1.0)-pp,dir,len2,lob,clp,vec3(ijfeR.x,ijfeG.x,ijfeB.x)); // i\n  FsrEasuTapF(aC,aW,vec2( 0.0, 1.0)-pp,dir,len2,lob,clp,vec3(ijfeR.y,ijfeG.y,ijfeB.y)); // j\n  FsrEasuTapF(aC,aW,vec2( 0.0, 0.0)-pp,dir,len2,lob,clp,vec3(ijfeR.z,ijfeG.z,ijfeB.z)); // f\n  FsrEasuTapF(aC,aW,vec2(-1.0, 0.0)-pp,dir,len2,lob,clp,vec3(ijfeR.w,ijfeG.w,ijfeB.w)); // e\n  FsrEasuTapF(aC,aW,vec2( 1.0, 1.0)-pp,dir,len2,lob,clp,vec3(klhgR.x,klhgG.x,klhgB.x)); // k\n  FsrEasuTapF(aC,aW,vec2( 2.0, 1.0)-pp,dir,len2,lob,clp,vec3(klhgR.y,klhgG.y,klhgB.y)); // l\n  FsrEasuTapF(aC,aW,vec2( 2.0, 0.0)-pp,dir,len2,lob,clp,vec3(klhgR.z,klhgG.z,klhgB.z)); // h\n  FsrEasuTapF(aC,aW,vec2( 1.0, 0.0)-pp,dir,len2,lob,clp,vec3(klhgR.w,klhgG.w,klhgB.w)); // g\n  FsrEasuTapF(aC,aW,vec2( 1.0, 2.0)-pp,dir,len2,lob,clp,vec3(zzonR.z,zzonG.z,zzonB.z)); // o\n  FsrEasuTapF(aC,aW,vec2( 0.0, 2.0)-pp,dir,len2,lob,clp,vec3(zzonR.w,zzonG.w,zzonB.w)); // n\n//------------------------------------------------------------------------------------------------------------------------------\n  // Normalize and dering.\n  pix=min(max4,max(min4,aC*vec3(safeRcp(aW))));}\nvoid main(){vec2 size=vec2(textureSize(source,0)),scale=size/outputSize;\n vec4 con0=vec4(scale,.5*scale-.5),con1=vec4(1./size,vec2(1,-1)/size),con2=vec4(vec2(-1,2)/size,vec2(1,2)/size),con3=vec4(vec2(0,4)/size,0,0);\n vec3 c;FsrEasuF(c,gl_FragCoord.xy-.5,con0,con1,con2,con3);fragColor=vec4(c,1);}\n", "finish": "#version 300 es\nprecision highp float;\nprecision highp sampler2D;\nuniform sampler2D source;\nuniform vec2 outputSize;\nuniform float contrast,saturation,shadows,deband;\nuniform bool diagnostic;\nout vec4 fragColor;\n// Also embedded in the sharpening shader: round only at final presentation.\nvec3 finishColor(vec3 c){\n float l=dot(c,vec3(.2126,.7152,.0722));\n c+=shadows*pow(max(0.,1.-l),3.)*.15;\n float noise=fract(52.9829189*fract(dot(gl_FragCoord.xy,vec2(.06711056,.00583715))))-.5;\n // Full half-LSB dither preserves fractional levels; scaling it by filter strength\n // would bias rounding. Integer black/white remain unchanged after quantization.\n if(deband>0.)c+=noise/255.;\n if(diagnostic)c=mix(c,vec3(1,0,.75),.65);\n return clamp(c,0.,1.);\n}\nvoid main(){vec3 c=texture(source,gl_FragCoord.xy/outputSize).rgb;\n float l=dot(c,vec3(.2126,.7152,.0722));\n c=mix(vec3(l),c,saturation);c=(c-.5)*contrast+.5;\n fragColor=vec4(finishColor(c),1.);}\n", "motion": "#version 300 es\nprecision highp float;\nprecision highp sampler2D;\nuniform sampler2D source, previous, cut, fullSource, fullPrevious;\nuniform vec2 outputSize;\nuniform bool validHistory;\nout vec4 fragColor;\nfloat lum(vec3 c){return dot(c,vec3(.2126,.7152,.0722));}\nfloat lowLuma[5],fullLuma[5];\nfloat matchingError(vec2 uv,vec2 candidate,vec2 stepSize){\n float error=0.;for(int i=0;i<5;i++){\n  vec2 d=i==0?vec2(0):i==1?vec2(1,0):i==2?vec2(-1,0):i==3?vec2(0,1):vec2(0,-1);\n  error+=abs(lowLuma[i]-lum(texture(previous,uv+(d+candidate)*stepSize).rgb))*.2;\n }return error+length(candidate)*.00001;\n}\nfloat fineError(vec2 uv,vec2 offset){\n vec2 size=vec2(textureSize(fullSource,0));\n float error=0.;\n for(int i=0;i<5;i++){\n  vec2 d=i==0?vec2(0):i==1?vec2(3,0):i==2?vec2(-3,0):i==3?vec2(0,3):vec2(0,-3);\n  error+=abs(fullLuma[i]-lum(texture(fullPrevious,uv+(d+offset)/size).rgb))*.2;\n }\n return error;\n}\nvoid main(){\n if(!validHistory||texture(cut,vec2(.5)).r>.12){fragColor=vec4(vec2(128./255.),0,1);return;}\n vec2 uv=gl_FragCoord.xy/outputSize,stepSize=1./vec2(textureSize(source,0));\n // Current-frame samples do not depend on the candidate vector. Fetch once.\n for(int i=0;i<5;i++){\n  vec2 d=i==0?vec2(0):i==1?vec2(1,0):i==2?vec2(-1,0):i==3?vec2(0,1):vec2(0,-1);\n  lowLuma[i]=lum(texture(source,uv+d*stepSize).rgb);\n  fullLuma[i]=lum(texture(fullSource,uv+d*3./vec2(textureSize(fullSource,0))).rgb);\n }\n float best=10.,second=10.;vec2 offset=vec2(0);\n // Keep the fine local search, then search coarse offsets up to 32 source pixels.\n for(int pass=0;pass<2;pass++)for(int y=-2;y<=2;y++)for(int x=-2;x<=2;x++){\n  if(pass==1&&x==0&&y==0)continue;\n  vec2 candidate=vec2(x,y)*(pass==0?1.:4.);float error=matchingError(uv,candidate,stepSize);\n  if(error<best){second=best;best=error;offset=candidate;}else second=min(second,error);\n }\n vec2 coarse=offset;\n // Refine only a winning coarse vector. Maximum supported displacement is 40px.\n if(any(greaterThan(abs(coarse),vec2(2))))for(int y=-2;y<=2;y++)for(int x=-2;x<=2;x++){\n  vec2 candidate=coarse+vec2(x,y);\n  if(all(lessThanEqual(abs(candidate),vec2(2)))||all(lessThan(abs(mod(candidate,4.)),vec2(.001))))continue;\n  float error=matchingError(uv,candidate,stepSize);\n  if(error<best){second=best;best=error;offset=candidate;}else second=min(second,error);\n }\n float coarseConfidence=smoothstep(.0002,.004,second-best);\n // Refine only at the small motion-field resolution. No extra full-frame pass.\n // Use the actual size ratio: odd source dimensions are not exactly 4:1.\n vec2 fullSize=vec2(textureSize(fullSource,0));\n vec2 center=offset*fullSize/vec2(textureSize(source,0)),fine=center;\n float fineBest=10.,fineSecond=10.;\n for(int y=-2;y<=2;y++)for(int x=-2;x<=2;x++){\n  vec2 candidate=center+vec2(x,y);float error=fineError(uv,candidate);\n  if(error<fineBest){fineSecond=fineBest;fineBest=error;fine=candidate;}else fineSecond=min(fineSecond,error);\n }\n float confidence=(1.-smoothstep(.008,.045,fineBest))*max(coarseConfidence,smoothstep(.0002,.004,fineSecond-fineBest));\n center=fine;\n for(int y=-1;y<=1;y++)for(int x=-1;x<=1;x++){\n  if(x==0&&y==0)continue;\n  vec2 candidate=center+vec2(x,y)*.5;float error=fineError(uv,candidate);\n  if(error<fineBest){fineBest=error;fine=candidate;}\n }\n // Exact half-pixel encoding in RGBA8, including zero (128), without float targets.\n fragColor=vec4((clamp(round(fine*2.),vec2(-128),vec2(127))+128.)/255.,confidence,1.);\n}\n", "rcas": "#version 300 es\nprecision highp float;\nprecision highp sampler2D;\n// FidelityFX Super Resolution Sample\n//\n// Copyright (c) 2021 Advanced Micro Devices, Inc. All rights reserved.\n// Permission is hereby granted, free of charge, to any person obtaining a copy\n// of this software and associated documentation files(the \"Software\"), to deal\n// in the Software without restriction, including without limitation the rights\n// to use, copy, modify, merge, publish, distribute, sublicense, and / or sell\n// copies of the Software, and to permit persons to whom the Software is\n// furnished to do so, subject to the following conditions :\n// The above copyright notice and this permission notice shall be included in\n// all copies or substantial portions of the Software.\n// THE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\n// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\n// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.IN NO EVENT SHALL THE\n// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\n// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\n// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN\n// THE SOFTWARE.\n\n// RCAS port of vendor/ffx_fsr1.h FsrRcasF, denoise enabled.\n// Exact guarded reciprocals replace AMD approximations. Local halo limiter is ours.\nuniform sampler2D data;\nuniform vec2 outputSize;\nuniform float rcasStrength,haloMargin,noiseFloor,contrast,saturation,shadows,deband;\nuniform bool diagnostic,lumaSharpen;\nout vec4 fragColor;\nvec3 finishColor(vec3 c){\n float l=dot(c,vec3(.2126,.7152,.0722));\n c+=shadows*pow(max(0.,1.-l),3.)*.15;\n float noise=fract(52.9829189*fract(dot(gl_FragCoord.xy,vec2(.06711056,.00583715))))-.5;\n // Full half-LSB dither preserves fractional levels; scaling it by filter strength\n // would bias rounding. Integer black/white remain unchanged after quantization.\n if(deband>0.)c+=noise/255.;\n if(diagnostic)c=mix(c,vec3(1,0,.75),.65);\n return clamp(c,0.,1.);\n}\n\nfloat luma2(vec3 c){return c.b*.5+c.r*.5+c.g;}\nvoid main(){\n vec2 uv=gl_FragCoord.xy/outputSize,stepSize=1./vec2(textureSize(data,0));\n vec3 e=texture(data,uv).rgb,c=e;\n if(rcasStrength>0.){\n  vec3 b=texture(data,uv+vec2(0,-1)*stepSize).rgb,d=texture(data,uv+vec2(-1,0)*stepSize).rgb;\n  vec3 f=texture(data,uv+vec2(1,0)*stepSize).rgb,h=texture(data,uv+vec2(0,1)*stepSize).rgb;\n  float bl=luma2(b),dl=luma2(d),el=luma2(e),fl=luma2(f),hl=luma2(h);\n  float range=max(max(max(bl,dl),max(fl,hl)),el)-min(min(min(bl,dl),min(fl,hl)),el);\n  float noise=1.-.5*clamp(abs(.25*(bl+dl+fl+hl)-el)/max(range,1e-6),0.,1.);\n  vec3 mn=min(min(b,d),min(f,h)),mx=max(max(b,d),max(f,h));\n  vec3 hitMin=min(mn,e)/max(4.*mx,vec3(1e-6));\n  vec3 hitMax=(1.-max(mx,e))/min(4.*mn-4.,vec3(-1e-6));\n  vec3 lobes=max(-hitMin,hitMax);\n  float lobe=max(-.1875,min(max(max(lobes.r,lobes.g),lobes.b),0.))*rcasStrength*noise;\n  c=(lobe*(b+d+f+h)+e)/(4.*lobe+1.);\n  vec3 lo=min(mn,e),hi=max(mx,e);\n  float detail=smoothstep(noiseFloor,noiseFloor+4./255.,max(max(hi.r-lo.r,hi.g-lo.g),hi.b-lo.b));\n  c=clamp(mix(e,c,detail),lo-haloMargin,hi+haloMargin);\n  if(lumaSharpen)c=clamp(e+vec3(dot(c-e,vec3(.2126,.7152,.0722))),0.,1.);\n }\n float l=dot(c,vec3(.299,.587,.114));c=mix(vec3(l),c,saturation);c=contrast*(c-.5)+.5;\n fragColor=vec4(finishColor(c),1);\n}\n", "spatial": "#version 300 es\nprecision highp float;\nprecision highp sampler2D;\nuniform sampler2D source;\nuniform float cleanup, deband, debandTaps, chroma, detail, antialias;\nuniform bool quantize,selective;\nout vec4 fragColor;\nfloat peak(vec3 c){return max(max(abs(c.r),abs(c.g)),abs(c.b));}\nfloat lum(vec3 c){return dot(c,vec3(.2126,.7152,.0722));}\nvec3 at(vec2 p){return texelFetch(source,clamp(ivec2(p),ivec2(0),textureSize(source,0)-1),0).rgb;}\nvoid main(){\n vec2 p=gl_FragCoord.xy-.5;vec3 c=at(p), result=c;\n vec3 west=at(p-vec2(1,0)),east=at(p+vec2(1,0));\n vec3 south=at(p-vec2(0,1)),north=at(p+vec2(0,1));\n // Gradient sign reversals identify fine texture/extrema, even at low contrast.\n // Reuse these neighbors for cleanup; no extra classification render target.\n float reversal=sqrt(max(0.,max(-lum(c-west)*lum(east-c),-lum(c-south)*lum(north-c))));\n float textureMask=smoothstep(.003,.015,reversal);\n // Color extrema matter even on nearly isoluminant colored text and fine lines.\n if(selective){\n  vec3 rx=max(-(c-west)*(east-c),-(c-south)*(north-c));\n  textureMask=max(textureMask,smoothstep(.003,.015,sqrt(max(0.,max(max(rx.r,rx.g),rx.b)))));\n }\n // Detect a small step between smooth regions; do not assume a codec block grid.\n if(cleanup>0.)for(int axis=0;axis<2;axis++){\n  vec2 d=axis==0?vec2(1,0):vec2(0,1);\n  vec3 l=axis==0?west:south,ll=at(p-2.*d),r=axis==0?east:north,rr=at(p+2.*d);\n  float left=selective?peak(c-l):abs(lum(c-l)),right=selective?peak(r-c):abs(lum(r-c));\n  float outerL=selective?peak(l-ll):abs(lum(l-ll)),outerR=selective?peak(rr-r):abs(lum(rr-r));\n  float jump=max(left,right),side=min(left,right);\n  float smoothSides=1.-smoothstep(.003,.025,max(max(outerL,outerR),side));\n  float smallStep=smoothstep(.003,.012,jump)*(1.-smoothstep(.04,.10,jump));\n  // Reject a continuous ramp: it is not evidence of a compression boundary.\n  float confidence=selective?1.-smoothstep(.2,.7,max(max(outerL,outerR),side)/max(jump,1e-5)):1.;\n  vec3 across=left>right?l:r;\n  result=mix(result,(c+across)*.5,cleanup*confidence*smoothSides*smallStep*.8*(1.-textureMask));\n }\n if(deband>0.){\n  vec3 avg=vec3(0);float diff=0.,weightSum=0.;\n  float radius=mix(2.,8.,deband);\n  for(int i=0;i<4;i++){\n   if(float(i)>=debandTaps)break;\n   vec2 d=i==0?vec2(1,.5):i==1?vec2(-1,-.5):i==2?vec2(.5,-1):vec2(-.5,1);\n   vec3 n=at(p+floor(d*radius));\n   // Outlying samples across an edge cannot pull a smooth region toward it.\n   float weight=selective?1.-smoothstep(.006,.012+deband*.04,peak(n-c)):1.;\n   avg+=n*weight;weightSum+=weight;\n   diff=max(diff,max(max(abs(n.r-c.r),abs(n.g-c.g)),abs(n.b-c.b)));\n  }\n  avg=weightSum>0.?avg/weightSum:c;\n  float flatRegion=1.-smoothstep(.006,.012+deband*.04,diff);\n  result=mix(result,avg,deband*flatRegion*.8*(1.-textureMask));\n }\n if(chroma>0.){\n  // Chroma from luma. 4:2:0 color is upsampled with a ~2 px blur while luma\n  // stays sharp. Across a luma edge, samples 2 px away on each side carry\n  // clean color; the center luma says which side (or blend) it belongs to.\n  vec2 g=vec2(lum(east)-lum(west),lum(north)-lum(south));\n  float gl=length(g);\n  if(gl>4./255.){\n   vec2 size=vec2(textureSize(source,0)),uv=(p+.5)/size,d=g/gl*2./size;\n   vec3 A=texture(source,uv-d).rgb,B=texture(source,uv+d).rgb;\n   float yA=lum(A),yB=lum(B),Y=lum(result),span=yB-yA;\n   float s=clamp((Y-yA)/(abs(span)>1e-4?span:1e-4),0.,1.);\n   vec2 cA=vec2(A.b,A.r)-yA,cB=vec2(B.b,B.r)-yB,cur=vec2(result.b,result.r)-Y,pred=mix(cA,cB,s);\n   // Only a blend of both sides is treated as upsampling blur; color outside\n   // that range is real detail (thin colored lines, text) and is kept.\n   vec2 inside=step(min(cA,cB)-2./255.,cur)*step(cur,max(cA,cB)+2./255.);\n   vec2 weight=chroma*smoothstep(4./255.,12./255.,abs(span))*inside;\n   vec2 cb_cr=mix(cur,pred,weight);\n   float Bc=cb_cr.x+Y,Rc=cb_cr.y+Y;\n   result=vec3(Rc,(Y-.2126*Rc-.0722*Bc)/.7152,Bc);\n  }\n }\n if(detail>0.){\n  // Reuse center/cross samples; fetch only diagonals and distance-2 cross.\n  vec3 w[8]=vec3[8](at(p+vec2(-1,-1)),at(p+vec2(1,-1)),at(p+vec2(-1,1)),at(p+vec2(1,1)),at(p+vec2(2,0)),at(p-vec2(2,0)),at(p+vec2(0,2)),at(p-vec2(0,2)));\n  float lo=min(min(lum(c),min(lum(west),lum(east))),min(lum(south),lum(north))),hi=max(max(lum(c),max(lum(west),lum(east))),max(lum(south),lum(north)));\n  for(int i=0;i<4;i++){float l=lum(w[i]);lo=min(lo,l);hi=max(hi,l);}\n  // Cleanup/deband already smoothed this pixel: do not restore what they removed.\n  float untouched=1.-smoothstep(.5/255.,2./255.,peak(result-c));\n  // Luma-only detail: no colored fringes. Coring grows near strong edges so\n  // encoder ringing/mosquito noise is not amplified with real texture. The\n  // wide range (5x5 cross + ring) finds strong edges up to ~3 px away.\n  float L=lum(result),range=hi-lo,wLo=lo,wHi=hi;\n  for(int i=4;i<8;i++){float l=lum(w[i]);wLo=min(wLo,l);wHi=max(wHi,l);}\n  float fine=lum(c)-.25*(lum(west)+lum(east)+lum(south)+lum(north));\n  vec2 size=vec2(textureSize(source,0)),uv=(p+.5)/size;float ring=0.;\n  for(int i=0;i<8;i++){\n   vec2 d=i==0?vec2(3.5,.5):i==1?vec2(-3.5,-.5):i==2?vec2(.5,-3.5):i==3?vec2(-.5,3.5):i==4?vec2(2.5):i==5?vec2(-2.5):i==6?vec2(2.5,-2.5):vec2(-2.5,2.5);\n   float l=lum(texture(source,uv+d/size).rgb);ring+=l;wLo=min(wLo,l);wHi=max(wHi,l);\n  }\n  float clarity=lum(c)-ring/8.;\n  float t=1.5/255.+.06*range+.04*(wHi-wLo);\n  fine=sign(fine)*max(abs(fine)-t,0.);clarity=sign(clarity)*max(abs(clarity)-t,0.);\n  float dL=detail*untouched*(1.2*fine+.8*clarity*(1.-smoothstep(.15,.4,wHi-wLo)));\n  float margin=detail*2./255.;\n  // Bound new overshoot only; never pull an existing value back.\n  result+=clamp(L+dL,min(L,lo-margin),max(L,hi+margin))-L;\n }\n if(antialias>0.){\n  // Same directional AA as antialias.glsl, fused here when temporal is off:\n  // saves a full-frame pass and render target (memory bandwidth on iGPUs).\n  // Direction and blend come from the source; the blend is applied as a delta.\n  float nw=lum(at(p+vec2(-1,1))),ne=lum(at(p+vec2(1,1))),sw=lum(at(p+vec2(-1,-1))),se=lum(at(p+vec2(1,-1)));\n  float mid=lum(c),lo=min(mid,min(min(nw,ne),min(sw,se))),hi=max(mid,max(max(nw,ne),max(sw,se)));\n  vec2 dir=vec2(-(nw+ne-sw-se),nw+sw-ne-se);\n  float major=max(abs(dir.x),abs(dir.y));\n  float weight=antialias*smoothstep(.04,.15,hi-lo)*smoothstep(.05,.35,min(abs(dir.x),abs(dir.y))/max(major,1e-5));\n  if(weight>0.){\n   vec2 size=vec2(textureSize(source,0)),uv=(p+.5)/size,d=dir/max(major,1e-5)/size*.5;\n   vec3 smoothColor=(texture(source,uv-d).rgb+texture(source,uv+d).rgb)*.5;\n   float sl=lum(smoothColor);\n   if(sl>=lo&&sl<=hi)result+=(smoothColor-c)*weight;\n  }\n }\n // On devices without float color targets, dither before this first quantization.\n if(quantize&&deband>0.)result+=(fract(52.9829189*fract(dot(gl_FragCoord.xy,vec2(.06711056,.00583715))))-.5)/255.;\n fragColor=vec4(clamp(result,0.,1.),1.);\n}\n", "temporal": "#version 300 es\nprecision highp float;\nprecision highp sampler2D;\nuniform sampler2D source, history, motion;\nuniform float temporal;\nout vec4 fragColor;\nvoid main(){\n vec2 size=vec2(textureSize(source,0)),uv=gl_FragCoord.xy/size;\n vec3 c=texture(source,uv).rgb,lo=c,hi=c;\n for(int y=-1;y<=1;y++)for(int x=-1;x<=1;x++){\n  vec3 n=texture(source,uv+vec2(x,y)/size).rgb;lo=min(lo,n);hi=max(hi,n);\n }\n vec3 field=texture(motion,uv).rgb;\n vec2 offset=(round(field.xy*255.)-128.)*.5;\n vec2 prevUV=uv+offset/size;\n vec3 old=texture(history,prevUV).rgb;\n float disagreement=max(max(abs(old.r-c.r),abs(old.g-c.g)),abs(old.b-c.b));\n float confidence=field.z*(1.-smoothstep(.02,.08,disagreement));\n if(any(lessThan(prevUV,vec2(0)))||any(greaterThan(prevUV,vec2(1))))confidence=0.;\n // Neighborhood clamp prevents old edges becoming trails or invented textures.\n old=clamp(old,lo-vec3(.004),hi+vec3(.004));\n fragColor=vec4(mix(c,old,temporal*confidence*.35),1.);\n}\n", "nnFeatures": "#version 300 es\nprecision highp float;\nprecision highp sampler2D;\nuniform sampler2D source;\nlayout(location=0) out vec4 featA;\nlayout(location=1) out vec4 featB;\nfloat Y(ivec2 p){return dot(texelFetch(source,clamp(p,ivec2(0),textureSize(source,0)-1),0).rgb,vec3(.2126,.7152,.0722));}\nvoid main(){ivec2 p=ivec2(gl_FragCoord.xy);\n vec4 hA=vec4(-0.226349,0.014705,0.006476,0.059624),hB=vec4(0.196681,-0.118776,0.014316,0.082932);float y;\n y=Y(p+ivec2(-1,-1));hA+=y*vec4(-0.157775,0.206327,0.434315,-0.279666);hB+=y*vec4(0.221413,-0.694872,0.093376,-0.538916);\n y=Y(p+ivec2(0,-1));hA+=y*vec4(-0.438596,0.246507,-0.337733,0.369609);hB+=y*vec4(-0.39346,-0.088393,0.514404,0.554256);\n y=Y(p+ivec2(1,-1));hA+=y*vec4(0.522971,0.3702,0.639016,-0.536868);hB+=y*vec4(0.07824,0.185036,-0.657592,0.70837);\n y=Y(p+ivec2(-1,0));hA+=y*vec4(-0.730832,-0.233706,0.42366,0.846775);hB+=y*vec4(-0.222371,-0.043975,-0.332283,-0.743265);\n y=Y(p+ivec2(0,0));hA+=y*vec4(-0.150888,0.408999,-0.659478,-0.365631);hB+=y*vec4(-1.388277,-0.823962,-0.268284,-0.802107);\n y=Y(p+ivec2(1,0));hA+=y*vec4(-1.056894,-0.842843,-0.174905,-0.26866);hB+=y*vec4(-0.053229,-0.506229,0.888183,0.175313);\n y=Y(p+ivec2(-1,1));hA+=y*vec4(-1.16294,-1.021929,0.190978,-0.160122);hB+=y*vec4(0.237714,-0.595438,-0.590489,0.173089);\n y=Y(p+ivec2(0,1));hA+=y*vec4(-0.953225,0.951,-0.07258,0.695426);hB+=y*vec4(0.172909,-0.472019,-0.1812,0.241279);\n y=Y(p+ivec2(1,1));hA+=y*vec4(-0.587355,-0.075366,-0.419964,-0.358507);hB+=y*vec4(0.174139,-0.177389,0.529243,0.159632);\n hA=max(hA,0.);hB=max(hB,0.);\n featA=max(vec4(0.025083,-0.005039,-0.060359,0.064819)+mat4(-0.621943,-0.463344,-0.115933,0.376332,-0.393935,-0.144085,-0.640372,-0.800653,-1.427048,0.260171,0.45471,-0.32547,0.45035,-0.165235,0.234294,-0.336041)*hA+mat4(-0.465179,-0.608917,-0.235469,0.379221,0.641487,-0.850979,-0.013973,-0.49559,0.025351,0.824426,0.423167,-0.268448,-0.549956,0.701361,0.319914,-0.337372)*hB,0.);\n featB=max(vec4(0.020966,-0.007923,0.005142,0.038897)+mat4(-0.037735,-0.190399,0.240126,-0.067749,0.437672,0.034552,-0.091689,0.037419,0.17063,-0.014929,0.061535,-0.013824,-0.149559,0.529273,0.026754,-0.18008)*hA+mat4(-1.681177,0.105725,-0.030044,0.226267,0.306316,-0.170306,0.534302,-0.007676,-0.225442,0.261837,-0.797967,-1.462143,0.689266,0.88499,0.075893,-0.010657)*hB,0.);\n}\n", "nnApply": "#version 300 es\nprecision highp float;\nprecision highp sampler2D;\nuniform sampler2D source,featA,featB;\nuniform float strength;\nout vec4 fragColor;\nvoid main(){ivec2 p=ivec2(gl_FragCoord.xy),m=textureSize(source,0)-1;float d=-0.001243;\n {ivec2 q=clamp(p+ivec2(-1,-1),ivec2(0),m);d+=dot(texelFetch(featA,q,0),vec4(0.037956,0.00161,5e-06,-0.025074))+dot(texelFetch(featB,q,0),vec4(-0.02408,0.018034,-0.106278,0.06329));}\n {ivec2 q=clamp(p+ivec2(0,-1),ivec2(0),m);d+=dot(texelFetch(featA,q,0),vec4(-0.035505,0.034456,0.003953,0.118791))+dot(texelFetch(featB,q,0),vec4(0.010837,-0.026097,-0.028258,-0.03518));}\n {ivec2 q=clamp(p+ivec2(1,-1),ivec2(0),m);d+=dot(texelFetch(featA,q,0),vec4(-0.03049,-0.018461,0.041689,-0.108793))+dot(texelFetch(featB,q,0),vec4(0.010782,-0.002217,-0.072839,-0.080931));}\n {ivec2 q=clamp(p+ivec2(-1,0),ivec2(0),m);d+=dot(texelFetch(featA,q,0),vec4(0.049853,-0.006694,0.05851,-0.119233))+dot(texelFetch(featB,q,0),vec4(0.006983,-0.019536,-0.198451,0.127994));}\n {ivec2 q=clamp(p+ivec2(0,0),ivec2(0),m);d+=dot(texelFetch(featA,q,0),vec4(0.049783,-0.037383,-0.04415,-0.044615))+dot(texelFetch(featB,q,0),vec4(-0.023085,0.035699,-0.07822,0.01058));}\n {ivec2 q=clamp(p+ivec2(1,0),ivec2(0),m);d+=dot(texelFetch(featA,q,0),vec4(0.019708,-0.029916,0.051002,-0.002716))+dot(texelFetch(featB,q,0),vec4(0.003588,-0.010781,-0.050707,-0.038427));}\n {ivec2 q=clamp(p+ivec2(-1,1),ivec2(0),m);d+=dot(texelFetch(featA,q,0),vec4(-0.001052,-0.01583,0.031577,0.070275))+dot(texelFetch(featB,q,0),vec4(0.03957,-0.005504,-0.093555,-0.078156));}\n {ivec2 q=clamp(p+ivec2(0,1),ivec2(0),m);d+=dot(texelFetch(featA,q,0),vec4(-0.020044,-0.022556,0.023078,0.110389))+dot(texelFetch(featB,q,0),vec4(0.025218,0.022058,-0.119821,0.046273));}\n {ivec2 q=clamp(p+ivec2(1,1),ivec2(0),m);d+=dot(texelFetch(featA,q,0),vec4(-0.032938,0.012272,-0.004361,-0.02909))+dot(texelFetch(featB,q,0),vec4(0.00613,0.00159,-0.068138,0.020778));}\n vec3 c=texelFetch(source,p,0).rgb;\n // Luma correction applied to all channels: chroma is left to the chroma stage.\n fragColor=vec4(clamp(c+vec3(strength*d),0.,1.),1);\n}\n", "cas": "#version 300 es\nprecision highp float;\nprecision highp sampler2D;uniform sampler2D data;uniform vec2 iResolution;const int FILTER_UNSHARP_MASKING = 1;const int FILTER_CAS = 2;const float CAS_CONTRAST_PEAK = 0.8 * -3.0 + 8.0;const vec3 LUMINOSITY_FACTOR = vec3(0.299, 0.587, 0.114);uniform int filterId;uniform bool qualityMode;uniform float sharpenFactor;uniform float brightness;uniform float contrast;uniform float saturation;out vec4 fragColor;uniform float shadows,deband;uniform bool diagnostic;\nvec3 finishColor(vec3 c){\n float l=dot(c,vec3(.2126,.7152,.0722));\n c+=shadows*pow(max(0.,1.-l),3.)*.15;\n float noise=fract(52.9829189*fract(dot(gl_FragCoord.xy,vec2(.06711056,.00583715))))-.5;\n // Full half-LSB dither preserves fractional levels; scaling it by filter strength\n // would bias rounding. Integer black/white remain unchanged after quantization.\n if(deband>0.)c+=noise/255.;\n if(diagnostic)c=mix(c,vec3(1,0,.75),.65);\n return clamp(c,0.,1.);\n}\n\nvec3 clarityBoost(sampler2D tex, vec2 coord, vec3 e) {vec2 texelSize = 1.0 / vec2(textureSize(tex, 0));vec3 b = texture(tex, coord + texelSize * vec2(0, 1)).rgb;vec3 d = texture(tex, coord + texelSize * vec2(-1, 0)).rgb;vec3 f = texture(tex, coord + texelSize * vec2(1, 0)).rgb;vec3 h = texture(tex, coord + texelSize * vec2(0, -1)).rgb;vec3 a;vec3 c;vec3 g;vec3 i;if (filterId == FILTER_UNSHARP_MASKING || qualityMode) {a = texture(tex, coord + texelSize * vec2(-1, 1)).rgb;c = texture(tex, coord + texelSize * vec2(1, 1)).rgb;g = texture(tex, coord + texelSize * vec2(-1, -1)).rgb;i = texture(tex, coord + texelSize * vec2(1, -1)).rgb;}if (filterId == FILTER_UNSHARP_MASKING) {vec3 gaussianBlur = (a + c + g + i) * 1.0 + (b + d + f + h) * 2.0 + e * 4.0;gaussianBlur /= 16.0;return e + (e - gaussianBlur) * sharpenFactor / 3.0;}vec3 minRgb = min(min(min(d, e), min(f, b)), h);vec3 maxRgb = max(max(max(d, e), max(f, b)), h);if (qualityMode) {minRgb += min(min(a, c), min(g, i));maxRgb += max(max(a, c), max(g, i));}vec3 reciprocalMaxRgb = 1.0 / max(maxRgb, vec3(1e-6));vec3 amplifyRgb = clamp(min(minRgb, 2.0 - maxRgb) * reciprocalMaxRgb, 0.0, 1.0);amplifyRgb = inversesqrt(max(amplifyRgb, vec3(1e-6)));vec3 weightRgb = -(1.0 / (amplifyRgb * CAS_CONTRAST_PEAK));vec3 reciprocalWeightRgb = 1.0 / (4.0 * weightRgb + 1.0);vec3 window = b + d + f + h;vec3 outColor = clamp((window * weightRgb + e) * reciprocalWeightRgb, 0.0, 1.0);return mix(e, outColor, sharpenFactor / 2.0);}void main() {vec2 uv = gl_FragCoord.xy / iResolution.xy;vec3 color = texture(data, uv).rgb;if (sharpenFactor > 0.0) {color = clarityBoost(data, uv, color);}color = mix(vec3(dot(color, LUMINOSITY_FACTOR)), color, saturation);color = contrast * (color - 0.5) + 0.5;color = brightness * color;fragColor = vec4(finishColor(color), 1.0);}", "casFiltered": "#version 300 es\nprecision highp float;\nprecision highp sampler2D;uniform sampler2D data;uniform vec2 iResolution;const int FILTER_UNSHARP_MASKING = 1;const int FILTER_CAS = 2;const float CAS_CONTRAST_PEAK = 0.8 * -3.0 + 8.0;const vec3 LUMINOSITY_FACTOR = vec3(0.299, 0.587, 0.114);uniform int filterId;uniform bool qualityMode;uniform float sharpenFactor;uniform float brightness;uniform float contrast;uniform float saturation;out vec4 fragColor;uniform float shadows,deband;uniform bool diagnostic;\nvec3 finishColor(vec3 c){\n float l=dot(c,vec3(.2126,.7152,.0722));\n c+=shadows*pow(max(0.,1.-l),3.)*.15;\n float noise=fract(52.9829189*fract(dot(gl_FragCoord.xy,vec2(.06711056,.00583715))))-.5;\n // Full half-LSB dither preserves fractional levels; scaling it by filter strength\n // would bias rounding. Integer black/white remain unchanged after quantization.\n if(deband>0.)c+=noise/255.;\n if(diagnostic)c=mix(c,vec3(1,0,.75),.65);\n return clamp(c,0.,1.);\n}\n\nuniform float haloMargin,noiseFloor;uniform bool lumaSharpen;\nvec3 limitSharpen(vec3 center,vec3 sharpened,vec3 lo,vec3 hi){\n float range=max(max(hi.r-lo.r,hi.g-lo.g),hi.b-lo.b);\n float detail=smoothstep(noiseFloor,noiseFloor+4.0/255.0,range);\n vec3 result=clamp(mix(center,sharpened,detail),lo-vec3(haloMargin),hi+vec3(haloMargin));\n if(lumaSharpen)result=clamp(center+vec3(dot(result-center,vec3(0.2126,0.7152,0.0722))),0.0,1.0);\n return result;\n}\nvec3 clarityBoost(sampler2D tex, vec2 coord, vec3 e) {vec2 texelSize = 1.0 / vec2(textureSize(tex, 0));vec3 b = texture(tex, coord + texelSize * vec2(0, 1)).rgb;vec3 d = texture(tex, coord + texelSize * vec2(-1, 0)).rgb;vec3 f = texture(tex, coord + texelSize * vec2(1, 0)).rgb;vec3 h = texture(tex, coord + texelSize * vec2(0, -1)).rgb;vec3 a;vec3 c;vec3 g;vec3 i;if (filterId == FILTER_UNSHARP_MASKING || qualityMode) {a = texture(tex, coord + texelSize * vec2(-1, 1)).rgb;c = texture(tex, coord + texelSize * vec2(1, 1)).rgb;g = texture(tex, coord + texelSize * vec2(-1, -1)).rgb;i = texture(tex, coord + texelSize * vec2(1, -1)).rgb;}if (filterId == FILTER_UNSHARP_MASKING) {vec3 gaussianBlur = (a + c + g + i) * 1.0 + (b + d + f + h) * 2.0 + e * 4.0;gaussianBlur /= 16.0;return limitSharpen(e,e + (e - gaussianBlur) * sharpenFactor / 3.0,min(min(min(d,e),min(f,b)),h),max(max(max(d,e),max(f,b)),h));}vec3 minRgb = min(min(min(d, e), min(f, b)), h);vec3 maxRgb = max(max(max(d, e), max(f, b)), h);if (qualityMode) {minRgb += min(min(a, c), min(g, i));maxRgb += max(max(a, c), max(g, i));}vec3 reciprocalMaxRgb = 1.0 / max(maxRgb, vec3(1e-6));vec3 amplifyRgb = clamp(min(minRgb, 2.0 - maxRgb) * reciprocalMaxRgb, 0.0, 1.0);amplifyRgb = inversesqrt(max(amplifyRgb, vec3(1e-6)));vec3 weightRgb = -(1.0 / (amplifyRgb * CAS_CONTRAST_PEAK));vec3 reciprocalWeightRgb = 1.0 / (4.0 * weightRgb + 1.0);vec3 window = b + d + f + h;vec3 outColor = clamp((window * weightRgb + e) * reciprocalWeightRgb, 0.0, 1.0);return limitSharpen(e,mix(e, outColor, sharpenFactor / 2.0),min(min(min(d,e),min(f,b)),h),max(max(max(d,e),max(f,b)),h));}void main() {vec2 uv = gl_FragCoord.xy / iResolution.xy;vec3 color = texture(data, uv).rgb;if (sharpenFactor > 0.0) {color = clarityBoost(data, uv, color);}color = mix(vec3(dot(color, LUMINOSITY_FACTOR)), color, saturation);color = contrast * (color - 0.5) + 0.5;color = brightness * color;fragColor = vec4(finishColor(color), 1.0);}"};
 /* Shared GPU video processing engine. GLSL assets are embedded by tools/build.py. */
 (() => {
@@ -341,27 +341,59 @@ globalThis.BxShaders={"antialias": "#version 300 es\nprecision highp float;\npre
   }};}
   function createDiagnostics(){
     // One segment per distinct configuration: returning to an earlier one (e.g. the adaptive QP level)
-    // continues its segment, with time counted only while it is current.
-    let recording=false,segments=[],byKey=new Map(),current=null,count=0,disjoints=0,started=null,ended=null,stopReason=null,metadata={};
-    const percentile=(a,p)=>a.length?a[Math.ceil(a.length*p)-1]:null;
+    // continues its segment, with time counted only while it is current. Besides the GPU time, each
+    // segment keeps the intervals between frames shown (display), reaching the treatment (arrival) and
+    // captured by the server (server), the Fluidez wait per frame, its drops and the frames the <video>
+    // element skipped; the report adds a per-second stream timeline, so pacing can be read from the
+    // file, not only the average FPS.
+    let recording=false,segments=[],byKey=new Map(),current=null,gpuCount=0,raw=0,disjoints=0,started=null,ended=null,stopReason=null,metadata={},timeline=[],timelineCut=false;
+    const GPU_LIMIT=120000,RAW_LIMIT=300000,TIMELINE_LIMIT=3600,INTERVALS=['display','arrival','server','wait'];
+    const percentile=(a,p)=>a.length?a[Math.ceil(a.length*p)-1]:null,round=v=>Math.round(v*100)/100;
+    // Interval series: count, mean, deviation and maximum are exact and percentiles come from 0.1 ms bins,
+    // so the summary covers the whole segment however long; only the raw samples stop at RAW_LIMIT in
+    // total (samplesTruncated).
+    const series=()=>({n:0,sum:0,sq:0,max:null,bins:new Map(),samples:[],cut:false});
+    function push(x,v){x.n++;x.sum+=v;x.sq+=v*v;if(x.max===null||v>x.max)x.max=v;const b=Math.round(v*10);x.bins.set(b,(x.bins.get(b)||0)+1);
+      if(raw<RAW_LIMIT){x.samples.push(round(v));raw++;}else x.cut=true;}
+    // Hitches (display/arrival/server): intervals over 1.5x the median, i.e. a frame shown late. Not for waits.
+    function summary(x,hitches=true){
+      if(!x.n)return {count:0,meanMs:null,p50:null,p95:null,p99:null,maxMs:null,deviationMs:null,hitches:hitches?0:null,samplesMs:[],samplesTruncated:false};
+      const bins=[...x.bins].sort((a,b)=>a[0]-b[0]),mean=x.sum/x.n;
+      const at=p=>{const rank=Math.ceil(x.n*p);let acc=0;for(const [b,c] of bins){acc+=c;if(acc>=rank)return b/10;}return bins[bins.length-1][0]/10;};
+      const median=at(.5);
+      return {count:x.n,meanMs:mean,p50:median,p95:at(.95),p99:at(.99),maxMs:x.max,deviationMs:Math.sqrt(Math.max(0,x.sq/x.n-mean*mean)),
+        hitches:hitches?bins.reduce((a,[b,c])=>b/10>median*1.5?a+c:a,0):null,samplesMs:x.samples,samplesTruncated:x.cut};}
     return {
-      get active(){return recording;},
-      start(meta={}){recording=true;segments=[];byKey=new Map();current=null;count=0;disjoints=0;started=Date.now();ended=null;stopReason=null;metadata=meta;},
+      get active(){return recording;},get startedAt(){return started;},
+      start(meta={}){recording=true;segments=[];byKey=new Map();current=null;gpuCount=raw=0;disjoints=0;started=Date.now();ended=null;stopReason=null;metadata=meta;timeline=[];timelineCut=false;},
       stop(reason=null){if(!recording)return;recording=false;ended=Date.now();stopReason=reason;},
       frame(config,time){if(!recording)return null;const key=JSON.stringify(config);
         if(current?.key!==key){if(current)current.activeMs+=current.last-current.since;
           let segment=byKey.get(key);
-          if(!segment){if(segments.length>=256){this.stop('limite de 256 configurações');return null;}segment={key,config,frames:0,visits:0,activeMs:0,since:time,last:time,gpu:[]};segments.push(segment);byKey.set(key,segment);}
+          if(!segment){if(segments.length>=256){this.stop('limite de 256 configurações');return null;}
+            segment={key,config,frames:0,visits:0,activeMs:0,since:time,last:time,dropped:0,skipped:0,gpu:[],display:series(),arrival:series(),server:series(),wait:series()};segments.push(segment);byKey.set(key,segment);}
           segment.visits++;segment.since=segment.last=time;current=segment;}
         current.frames++;current.last=time;return current;
       },
       sample(segment,ms){if(!segment||!segments.includes(segment)||!Number.isFinite(ms)||ms<0)return;
-        if(count>=120000)return;segment.gpu.push(ms);count++;
+        if(gpuCount>=GPU_LIMIT)return;segment.gpu.push(ms);gpuCount++;
       },
+      // Interval (ms) of the configuration being rendered: 'display', 'arrival', 'server' or 'wait'.
+      interval(kind,ms){if(!recording||!current||!INTERVALS.includes(kind)||!Number.isFinite(ms)||ms<0)return;push(current[kind],ms);},
+      dropped(n){if(recording&&current&&n>0)current.dropped+=n;},
+      skipped(n){if(recording&&current&&n>0)current.skipped+=n;},
+      // One row per second of stream telemetry, t in seconds since the start; at most an hour.
+      timeline(entry){if(!recording)return;if(timeline.length>=TIMELINE_LIMIT){timelineCut=true;return;}const row={t:round((Date.now()-started)/1000)};
+        for(const [k,v] of Object.entries(entry))row[k]=typeof v==='number'?(Number.isFinite(v)?(k==='bitsPerPixel'?Math.round(v*1e4)/1e4:round(v)):null):v??null;timeline.push(row);},
+      annotate(meta){if(recording)Object.assign(metadata,meta);},
       disjoint(){if(recording)disjoints++;},
-      report(){return {schema:1,version:'9.7',build:globalThis.BxBuild??null,started,ended,stopReason,recording,metadata,disjoints,sampleLimit:120000,truncated:count>=120000||segments.length>=256,
-        segments:segments.map(segment=>{const {config,frames,visits,gpu}=segment,durationMs=segment.activeMs+(segment===current?segment.last-segment.since:0);
-          const sorted=[...gpu].sort((a,b)=>a-b);return {config,frames,durationMs,drawFps:durationMs>0?(frames-visits)*1000/durationMs:null,gpu:{count:gpu.length,p50:percentile(sorted,.5),p95:percentile(sorted,.95),p99:percentile(sorted,.99),samplesMs:[...gpu]}};})};}
+      report(){return {schema:2,version:'9.7.1',build:globalThis.BxBuild??null,started,ended,stopReason,recording,metadata,disjoints,
+        sampleLimit:{gpu:GPU_LIMIT,intervals:RAW_LIMIT,timeline:TIMELINE_LIMIT},truncated:gpuCount>=GPU_LIMIT||raw>=RAW_LIMIT||timelineCut||segments.length>=256,
+        segments:segments.map(segment=>{const {config,frames,visits,gpu,dropped,skipped}=segment,durationMs=segment.activeMs+(segment===current?segment.last-segment.since:0);
+          const sorted=[...gpu].sort((a,b)=>a-b);return {config,frames,durationMs,drawFps:durationMs>0?(frames-visits)*1000/durationMs:null,pacerDropped:dropped,videoSkipped:skipped,
+            gpu:{count:gpu.length,p50:percentile(sorted,.5),p95:percentile(sorted,.95),p99:percentile(sorted,.99),samplesMs:[...gpu]},
+            display:summary(segment.display),arrival:summary(segment.arrival),server:summary(segment.server),wait:summary(segment.wait,false)};}),
+        timeline};}
     };
   }
   async function captureVideoStats(video,peer){
@@ -493,8 +525,15 @@ globalThis.BxShaders={"antialias": "#version 300 es\nprecision highp float;\npre
     const bytes=delta('bytesReceived'),lost=delta('packetsLost'),received=delta('packetsReceived'),qp=delta('qpSum'),frames=delta('framesDecoded');
     return {bitrateMbps:seconds>0&&bytes>=0?bytes*8/seconds/1e6:null,lossPct:lost!==null&&received!==null&&lost+received>0?Math.max(0,lost)*100/(lost+received):null,
       qp:qp!==null&&frames>0?qp/frames:null,frames,framesDropped:delta('framesDropped'),freezes:delta('freezeCount'),
-      width:Number.isFinite(current.frameWidth)?current.frameWidth:null,height:Number.isFinite(current.frameHeight)?current.frameHeight:null};
+      width:Number.isFinite(current.frameWidth)?current.frameWidth:null,height:Number.isFinite(current.frameHeight)?current.frameHeight:null,
+      // Encoded bits per pixel of each frame: the compression estimate when the browser reports no QP.
+      bitsPerPixel:bytes!==null&&bytes>=0&&frames>0&&current.frameWidth>0&&current.frameHeight>0?bytes*8/(frames*current.frameWidth*current.frameHeight):null};
   }
+  // Without the decoder's QP (the Android WebView reports no qpSum), the bits per pixel stand in for it:
+  // 0.12 bit/pixel (15 Mb/s at 1080p60, the middle of the v9 calibration streams) is the neutral QP 28,
+  // and each doubling 4 QP less. H.264 needs about 6 QP per doubling; the gentler slope keeps an
+  // estimate that cannot see the scene content closer to neutral.
+  function qpFromBitsPerPixel(bpp){if(!(bpp>0)||!Number.isFinite(bpp))return null;return Math.min(51,Math.max(0,28-4*Math.log2(bpp/.12)));}
   // Compression-adaptive treatment: like a codec's deblocking filter, cleanup and debanding follow the
   // quantizer. Level 0 (QP <= 20, clean stream) to 1 (QP >= 36, heavy compression), in steps of 0.1;
   // QP 28 is neutral (all scales 1), so typical streams keep the measured v9 strengths.
@@ -511,14 +550,18 @@ globalThis.BxShaders={"antialias": "#version 300 es\nprecision highp float;\npre
     light:{label:'Leve',description:'Menos passes na GPU: saída nativa, sem degradês nem detalhe.',values:{sharpness:3,cleanup:.35,deband:0,chroma:.5,detail:0,sharpening:'usm',lumaSharpen:true,neural:0,temporal:0,antialias:0,output:'native'}},
   });
   function presetOf(settings){for(const [key,p] of Object.entries(presets))if(Object.entries(p.values).every(([k,v])=>settings[k]===v))return key;return 'custom';}
+  // Indented JSON with each samplesMs array on one line (one number per line would multiply the size).
+  function reportText(report){return JSON.stringify(report,(k,v)=>k==='samplesMs'&&Array.isArray(v)?'@@'+JSON.stringify(v)+'@@':v,2).replace(/"@@(\[[^"]*\])@@"/g,'$1');}
   // The Android app's WebView cannot download blobs: its bridge saves the file to Downloads instead.
-  function downloadReport(report){const name='bx-v9.7-diagnostics-'+Date.now()+'.json';
-    if(typeof globalThis.BxAndroid?.saveFile==='function'){const where=globalThis.BxAndroid.saveFile(name,'application/json',JSON.stringify(report,null,2));if(where)return where;}
-    const url=URL.createObjectURL(new Blob([JSON.stringify(report,null,2)],{type:'application/json'})),a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
+  function downloadReport(report){const name='bx-v9.7.1-diagnostics-'+Date.now()+'.json';
+    const text=reportText(report);
+    if(typeof globalThis.BxAndroid?.saveFile==='function'){const where=globalThis.BxAndroid.saveFile(name,'application/json',text);if(where)return where;}
+    const url=URL.createObjectURL(new Blob([text],{type:'application/json'})),a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
   const vertex='#version 300 es\nlayout(location=0) in vec2 position;void main(){gl_Position=vec4(position,0,1);}';
   class Engine {
     constructor(gl,shaders){
       this.gl=gl;this.programs={};this.targets={};this.queries=[];this.budget=createBudget();this.previous=null;this.frames=0;this.diagnostics=createDiagnostics();this.ext=gl.getExtension('EXT_disjoint_timer_query_webgl2');
+      this.fenceTiming=!this.ext&&typeof gl.fenceSync==='function';this.fence=null;this.fenceAt=-Infinity;this.fenceValues=[];this.fenceGeneration=0;this.gpuEstimate=null;
       this.floatTargets=!!gl.getExtension('EXT_color_buffer_float');
       try {
         this.vao=gl.createVertexArray();gl.bindVertexArray(this.vao);this.buffer=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,this.buffer);
@@ -570,6 +613,23 @@ globalThis.BxShaders={"antialias": "#version 300 es\nprecision highp float;\npre
       while(this.queries.length&&gl.getQueryParameter(this.queries[0].q,gl.QUERY_RESULT_AVAILABLE)){
         const item=this.queries.shift();if(item.revision===this.budget.revision){const ms=gl.getQueryParameter(item.q,gl.QUERY_RESULT)/1e6;this.budget.sample(ms,item.mode);this.diagnostics.sample(item.segment,ms);}gl.deleteQuery(item.q);}
     }
+    // Without the timer query (Android WebView), every 0.5 s a fence after a frame, polled on later tasks,
+    // times it from its first command until the GPU finished it: an upper bound of the GPU time (it also
+    // counts work queued before it), shown as an estimate and never used to reduce the treatment.
+    startFence(start,mode,segment){const gl=this.gl,sync=gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE,0);if(!sync)return;gl.flush();
+      this.fenceAt=start;this.fence={sync,start,mode,segment,generation:this.fenceGeneration,checked:null};setTimeout(()=>this.pollFence(),1);}
+    pollFence(){const gl=this.gl,f=this.fence;if(!f)return;
+      if(gl.isContextLost()){this.fence=null;return;}
+      const now=performance.now(),signaled=gl.getSyncParameter(f.sync,gl.SYNC_STATUS)===gl.SIGNALED,gap=f.checked===null?0:now-f.checked;
+      if(!signaled&&now-f.start<250){f.checked=now;setTimeout(()=>this.pollFence(),1);return;}
+      // A late reading measures the delay, not the GPU: a hidden page throttles timers, and a long task
+      // between two polls hides when the fence finished. The first poll waits for the rendering update.
+      gl.deleteSync(f.sync);this.fence=null;if(!signaled||now-f.start>=250||gap>20)return;
+      const ms=now-f.start;this.diagnostics.sample(f.segment,ms);
+      if(f.mode!=='filtered'||f.generation!==this.fenceGeneration)return;
+      this.fenceValues.push(ms);if(this.fenceValues.length>30)this.fenceValues.shift();
+      const sorted=[...this.fenceValues].sort((a,b)=>a-b);this.gpuEstimate={p50:sorted[(sorted.length-1)>>1],p95:sorted[Math.ceil(sorted.length*.95)-1],count:sorted.length};
+    }
     outputSize(w,h,settings){
       if(this.budget.limitMs!==settings.gpuBudget){this.resetBudget();this.budget.limitMs=settings.gpuBudget;}
       this.budget.configure(settings,h);this.poll();
@@ -580,6 +640,7 @@ globalThis.BxShaders={"antialias": "#version 300 es\nprecision highp float;\npre
     render(video,outW,outH,rawSettings,time,diagnostic=false,outputTarget=null){
       const gl=this.gl,s=normalize(rawSettings),w=video.videoWidth||video.displayWidth||video.width,h=video.videoHeight||video.displayHeight||video.height;
       if(!w||!h||gl.isContextLost())return false;
+      const started=performance.now();
       if(this.budget.limitMs!==s.gpuBudget){this.resetBudget();this.budget.limitMs=s.gpuBudget;}
       this.budget.configure(s,h);
       this.poll();let q=null;
@@ -632,6 +693,7 @@ globalThis.BxShaders={"antialias": "#version 300 es\nprecision highp float;\npre
         const method=s.sharpening==='native'?s.processing:s.sharpening;
         const casName=s.mode!=='original'&&method==='rcas'?'rcas':s.mode==='filtered'?'casFiltered':'cas';const p=this.programs[casName];gl.useProgram(p.program);gl.uniform1i(gl.getUniformLocation(p.program,'filterId'),method==='usm'?1:2);
         this.draw(casName,outputTarget?this.target(outputTarget,outW,outH):null,outW,outH,{data:source},{iResolution:[outW,outH],qualityMode:s.mode==='filtered'&&s.processingMode==='quality',rcasStrength:s.sharpness/10,haloMargin:(2+s.sharpness)/255,noiseFloor:s.noiseFloor/255,lumaSharpen:s.lumaSharpen,sharpenFactor:s.mode==='original'?0:s.mode==='cas'?s.sharpness/1.2:s.sharpness/(s.processingMode==='quality'?1:1.2),brightness:1,contrast:s.mode==='filtered'?s.contrast:1,saturation:s.mode==='filtered'?s.saturation:1,shadows:s.mode==='filtered'?s.shadows:0,deband:s.mode==='filtered'?s.deband*this.budget.debandScale:0,diagnostic});
+        if(this.fenceTiming&&!this.fence&&started-this.fenceAt>=500)this.startFence(started,s.mode,segment);
         this.frames++;return true;
       }finally{
         if(q){gl.endQuery(this.ext.TIME_ELAPSED_EXT);this.queries.push({q,mode:s.mode,revision,segment});}
@@ -647,15 +709,16 @@ globalThis.BxShaders={"antialias": "#version 300 es\nprecision highp float;\npre
       this.draw('copy',null,t.w,t.h,{source:t.texture});gl.bindFramebuffer(gl.FRAMEBUFFER,null);gl.bindVertexArray(null);gl.activeTexture(gl.TEXTURE0);return true;}
     releasePaced(){const gl=this.gl;for(const [name,t] of Object.entries(this.targets))if(name.startsWith('paced')){gl.deleteTexture(t.texture);gl.deleteFramebuffer(t.fbo);delete this.targets[name];}}
     resetHistory(){this.previous=null;}
-    resetBudget(){for(const item of this.queries)this.gl.deleteQuery(item.q);this.queries=[];this.budget=createBudget();this.resetHistory();}
+    resetBudget(){for(const item of this.queries)this.gl.deleteQuery(item.q);this.queries=[];this.budget=createBudget();this.resetHistory();this.fenceGeneration++;this.fenceValues=[];this.gpuEstimate=null;}
     destroy(){const gl=this.gl;
       for(const t of Object.values(this.targets)){gl.deleteTexture(t.texture);if(t.second)gl.deleteTexture(t.second);gl.deleteFramebuffer(t.fbo);}
       for(const p of Object.values(this.programs))gl.deleteProgram(p.program);
       for(const item of this.queries)gl.deleteQuery(item.q);
+      if(this.fence){gl.deleteSync(this.fence.sync);this.fence=null;}
       gl.deleteTexture(this.input);gl.deleteBuffer(this.buffer);gl.deleteVertexArray(this.vao);this.targets={};this.programs={};this.queries=[];
     }
   }
-  globalThis.BxRestoration={streamSummary,compressionLevel,compressionScales,presets,presetOf,createPacer,createRtpClock,frameStats,applySmoothing,h264Profile,decoderSummary,createDiagnostics,captureVideoStats,downloadReport,Engine,defaults,normalize,historyValid,createBudget,outputSize,resolveOutput};
+  globalThis.BxRestoration={streamSummary,qpFromBitsPerPixel,compressionLevel,compressionScales,presets,presetOf,createPacer,createRtpClock,frameStats,applySmoothing,h264Profile,decoderSummary,createDiagnostics,captureVideoStats,downloadReport,Engine,defaults,normalize,historyValid,createBudget,outputSize,resolveOutput};
 })();
 
 /* BEGIN FRAME PACING */
@@ -695,7 +758,9 @@ globalThis.BxShaders={"antialias": "#version 300 es\nprecision highp float;\npre
  settings.contrast=1;settings.saturation=1;settings.shadows=0;
  const status={mode:'waiting',frames:0,lastFrame:0,resolution:'',error:'',gpuP95:null,measurement:'cadence',adaptation:'',fps:null,
   // Display intervals (ms) of the last ~8 s at 30 FPS, oldest first: the HUD's pacing graph.
-  intervals:[],intervalsTotal:0,net:null,warnings:[],adaptive:null,capture:{active:false,frames:0,reason:''}};
+  intervals:[],intervalsTotal:0,net:null,warnings:[],adaptive:null,capture:{active:false,frames:0,reason:''},
+  // GPU time estimate {p50, p95, count} from fences when the browser has no GPU timer (see Engine.startFence).
+  gpuEstimate:null};
  let activeEngine=null,activePlayer=null;
  // Physical pixels the video occupies on screen. The canvas CSS box is fixed by Better
  // xCloud (object-fit contain), so this does not depend on the canvas backing size.
@@ -723,22 +788,37 @@ globalThis.BxShaders={"antialias": "#version 300 es\nprecision highp float;\npre
   directSupported:()=>typeof MediaStreamTrackProcessor==='function'&&typeof VideoFrame==='function',
   async startMeasurement(){const engine=activeEngine,video=activePlayer?.$video;if(!engine)return false;
    const initial=await BxRestoration.captureVideoStats(video,peer());if(activeEngine!==engine)return false;
-   engine.diagnostics.start({userAgent:navigator.userAgent,renderer:engine.gl.getParameter(engine.gl.RENDERER),timer:!!engine.ext,floatTargets:engine.floatTargets,initial});return true;},
+   const sc=globalThis.screen;
+   engine.diagnostics.start({userAgent:navigator.userAgent,renderer:engine.gl.getParameter(engine.gl.RENDERER),timer:!!engine.ext,gpuMethod:engine.ext?'timer':engine.fenceTiming?'fence':null,floatTargets:engine.floatTargets,
+    screen:{width:sc?.width??null,height:sc?.height??null,dpr:window.devicePixelRatio??null,refreshPref:androidCall('getRefreshRate')},app:androidCall('getAppInfo'),
+    betterXcloud:nativePrefs(),capture:{...status.capture},smoothing:status.smoothing??null,initial});
+   const id=engine.diagnostics.startedAt;measureRefresh().then(hz=>{if(engine.diagnostics.startedAt===id)engine.diagnostics.annotate({refreshMeasuredHz:hz});});
+   return true;},
   get measuring(){return !!activeEngine?.diagnostics.active;},
   async exportMeasurement(){const engine=activeEngine;if(!engine)return null;engine.poll();engine.diagnostics.stop();
-   const report=engine.diagnostics.report();report.final=await BxRestoration.captureVideoStats(activePlayer?.$video,peer());report.net=status.net;BxRestoration.downloadReport(report);return report;},
+   const report=engine.diagnostics.report();report.final=await BxRestoration.captureVideoStats(activePlayer?.$video,peer());report.net=status.net;
+   report.status={capture:status.capture,fluidity:status.fluidity??null,adaptive:status.adaptive,smoothing:status.smoothing??null,pacing:status.pacing??null,origin:status.origin??null,gpuP95:status.gpuP95,gpuEstimate:status.gpuEstimate,warnings:status.warnings.map(w=>w.text)};
+   BxRestoration.downloadReport(report);return report;},
   // Clipboard: the Android app's bridge first (its WebView may deny navigator.clipboard).
   async copyText(text){try{if(window.BxAndroid?.copyText?.(text))return true;}catch{}try{await navigator.clipboard.writeText(text);return true;}catch{return false;}},
   // Configuration summary to paste in a support conversation (no account data).
-  configText(){const native={};for(const k of ['stream.video.resolution','stream.video.codecProfile','stream.video.maxBitrate','stream.video.preventResolutionDrops','server.region','server.bypassRestriction','userAgent.profile','video.player.type','video.processing','video.processing.mode','video.processing.sharpness','video.maxFps','video.player.powerPreference'])native[k]=api.nativePref(k)??null;
+  configText(){const native=nativePrefs();
    const o=status.origin,round=v=>typeof v==='number'?Math.round(v*10)/10:v;
    return JSON.stringify({build:globalThis.BxBuild?.version,app:window.BxAndroid?.getAppInfo?.()??null,screen:`${screen.width}×${screen.height} @${window.devicePixelRatio}`,
-    status:{resolution:status.resolution,fps:round(status.fps),gpuP95:status.gpuP95,adaptation:status.adaptation,smoothing:status.smoothing,fluidity:status.fluidity,capture:status.capture,adaptive:status.adaptive},
+    status:{resolution:status.resolution,fps:round(status.fps),gpuP95:status.gpuP95,gpuEstimate:status.gpuEstimate,adaptation:status.adaptation,smoothing:status.smoothing,fluidity:status.fluidity,capture:status.capture,adaptive:status.adaptive},
     pacing:status.pacing&&{meanMs:round(status.pacing.meanMs),deviationMs:round(status.pacing.deviationMs),p95Ms:round(status.pacing.p95Ms),hitches:status.pacing.hitches},
     origin:o&&{server:o.server&&[round(o.server.meanMs),round(o.server.deviationMs)],arrival:o.arrival&&[round(o.arrival.meanMs),round(o.arrival.deviationMs)],missed:o.missed,presented:o.presented},
-    net:status.net&&Object.fromEntries(Object.entries(status.net).map(([k,v])=>[k,round(v)])),warnings:status.warnings.map(w=>w.text),
+    net:status.net&&Object.fromEntries(Object.entries(status.net).map(([k,v])=>[k,k==='bitsPerPixel'&&typeof v==='number'?Math.round(v*1000)/1000:round(v)])),warnings:status.warnings.map(w=>w.text),
     preset:api.preset(),treatment:BxRestoration.normalize(settings),betterXcloud:native},null,1);},
  };
+ // Better xCloud settings that shape the stream, for the configuration summary and the measurement.
+ function nativePrefs(){const native={};for(const k of ['stream.video.resolution','stream.video.codecProfile','stream.video.maxBitrate','stream.video.preventResolutionDrops','server.region','server.bypassRestriction','userAgent.profile','video.player.type','video.processing','video.processing.mode','video.processing.sharpness','video.maxFps','video.player.powerPreference'])native[k]=api.nativePref(k)??null;return native;}
+ function androidCall(name){try{const v=window.BxAndroid?.[name]?.();return v===undefined?null:v;}catch{return null;}}
+ // Display refresh rate from 30 animation frames (median interval); null when the page is hidden.
+ function measureRefresh(){return new Promise(resolve=>{const times=[],timer=window.setTimeout(()=>resolve(null),2000);
+  const step=t=>{times.push(t);if(times.length<31){window.requestAnimationFrame(step);return;}
+   const d=times.slice(1).map((v,i)=>v-times[i]).sort((a,b)=>a-b),m=d[d.length>>1];window.clearTimeout(timer);resolve(m>0?Math.round(10000/m)/10:null);};
+  window.requestAnimationFrame(step);});}
  // Applies smoothing at once; the storage write is grouped (deferred=true) while a control is being moved.
  let saveTimer=0;
  function save(){saveTimer=0;try{localStorage.setItem(key,JSON.stringify(BxRestoration.normalize(settings)));}catch{}}
@@ -754,12 +834,12 @@ globalThis.BxShaders={"antialias": "#version 300 es\nprecision highp float;\npre
  }
  // Stream telemetry for the panel, the HUD and the compression-adaptive treatment: one getStats per
  // second, only while one of them needs it.
- let telemetryBusy=false,lastRtp=null,telemetryPeer=null;
+ let telemetryBusy=false,lastRtp=null,telemetryPeer=null,bppSamples=[];
  async function pollTelemetry(){
   const pc=peer();
   // A new session starts from scratch: no deltas or QP level carried over from the previous game.
-  if(pc!==telemetryPeer){telemetryPeer=pc;lastRtp=null;status.net=null;status.adaptive=null;}
-  if(!pc?.getStats||telemetryBusy||!(api.panelOpen||settings.hud!=='off'||settings.adaptive)){updateWarnings();return;}
+  if(pc!==telemetryPeer){telemetryPeer=pc;lastRtp=null;status.net=null;status.adaptive=null;bppSamples=[];}
+  if(!pc?.getStats||telemetryBusy||!(api.panelOpen||settings.hud!=='off'||settings.adaptive||api.measuring)){updateWarnings();return;}
   telemetryBusy=true;
   try{let rtp=null,rtt=null;const stats=await pc.getStats();
    if(peer()!==pc)return;
@@ -770,7 +850,11 @@ globalThis.BxShaders={"antialias": "#version 300 es\nprecision highp float;\npre
    const codec=info?.mimeType?info.mimeType.replace('video/','')+(profile?' '+profile:''):null;
    const d=BxRestoration.decoderSummary(lastRtp,rtp?{...rtp,codec}:null),q=BxRestoration.streamSummary(lastRtp,rtp);lastRtp=rtp;
    status.net=d&&{codec:d.codec,profile,fpsReceived:d.fps,decoder:d.kind,implementation:d.implementation,decodeMs:d.dtMs,bufferMs:d.jitterMs,rttMs:rtt,...q};
-   adaptToCompression(q?.qp??null,q?.frames??0);
+   if(Number.isFinite(rtp?.qpSum))adaptToCompression(q?.qp??null,q?.frames??0);else adaptToBitrate(q?.bitsPerPixel??null,q?.frames??0);
+   const diag=activeEngine?.diagnostics;
+   if(diag?.active&&d)diag.timeline({fpsReceived:d.fps,fpsShown:api.active?status.fps:null,bitrateMbps:q?.bitrateMbps,lossPct:q?.lossPct,rttMs:rtt,decodeMs:d.dtMs,bufferMs:d.jitterMs,
+    qp:q?.qp,bitsPerPixel:q?.bitsPerPixel,level:status.adaptive?.level,gpuMs:status.gpuP95??status.gpuEstimate?.p95,waitMs:status.fluidity?.extraMs,
+    decoderDropped:q?.framesDropped,freezes:q?.freezes,capture:activePlayer?.bxDirect?.rendered>0?'direct':'video'});
   }catch{status.net=null;}finally{telemetryBusy=false;updateWarnings();}
  }
  // The quantizer level moves the treatment only after a sustained change: an exponential mean of
@@ -781,7 +865,17 @@ globalThis.BxShaders={"antialias": "#version 300 es\nprecision highp float;\npre
   const a=status.adaptive,weight=.3*Math.min(1,frames/30),mean=a?.qpMean==null?qp:a.qpMean*(1-weight)+qp*weight,target=BxRestoration.compressionLevel(mean);
   // Levels are multiples of 0.1: compare against 0.15, since 1.0-0.8 is 0.19999… in floating point.
   const level=a?.level==null||Math.abs(target-a.level)>.15?target:a.level;
-  status.adaptive={qp,qpMean:mean,level,scales:BxRestoration.compressionScales(level)};
+  status.adaptive={source:'qp',qp,qpMean:mean,level,scales:BxRestoration.compressionScales(level)};
+ }
+ // Without the QP (Android WebView), the bits per pixel of the last minute: their 80th percentile, so
+ // quiet scenes (few bits at a low QP) do not read as heavy compression. Seconds with under 10 frames
+ // (stalls) are skipped; the first estimate needs 5 seconds. Same hysteresis as the QP.
+ function adaptToBitrate(bpp,frames){
+  if(!Number.isFinite(bpp)||!(bpp>0)||!(frames>=10))return;
+  bppSamples.push(bpp);if(bppSamples.length>60)bppSamples.shift();if(bppSamples.length<5)return;
+  const sorted=[...bppSamples].sort((a,b)=>a-b),p80=sorted[Math.ceil(sorted.length*.8)-1],qp=BxRestoration.qpFromBitsPerPixel(p80),target=BxRestoration.compressionLevel(qp);
+  const a=status.adaptive,level=a?.level==null||Math.abs(target-a.level)>.15?target:a.level;
+  status.adaptive={source:'bitrate',qp:null,qpMean:null,qpEstimate:qp,bitsPerPixel:p80,level,scales:BxRestoration.compressionScales(level)};
  }
  const MAX_BITRATE=15360000;
  function updateWarnings(){
@@ -805,8 +899,12 @@ globalThis.BxShaders={"antialias": "#version 300 es\nprecision highp float;\npre
  // Frame timing per player: capture time on the server (RTP), arrival (WebRTC receive time) and
  // display time, plus the optional pacer ("Fluidez") that shows processed frames on a steady clock.
  const keep=(list,value,now)=>{list.push([now,value]);while(list.length>1&&now-list[0][0]>2000)list.shift();};
+ // While the page is hidden nothing is shown (no rAF/rVFC): an interval spanning that time measures the
+ // app switch, not the stream, and stays out of the graph and the measurement.
+ let hiddenAt=-Infinity;
+ document.addEventListener?.('visibilitychange',()=>{if(document.hidden)hiddenAt=performance.now();});
  // Records a frame shown on screen: 2 s window for the panel's pacing line, longer ring for the HUD graph.
- function shownAt(t,now){keep(t.display,now,now);if(t.lastShown!=null){status.intervals.push(now-t.lastShown);status.intervalsTotal++;if(status.intervals.length>240)status.intervals.shift();}t.lastShown=now;}
+ function shownAt(t,now,engine){keep(t.display,now,now);if(t.lastShown!=null&&t.lastShown>hiddenAt){status.intervals.push(now-t.lastShown);status.intervalsTotal++;if(status.intervals.length>240)status.intervals.shift();engine?.diagnostics.interval('display',now-t.lastShown);}t.lastShown=now;}
  const statsOf=list=>BxRestoration.frameStats(list.map(e=>e[1]));
  function startTiming(player){
   if(player.bxTiming)return;
@@ -816,26 +914,35 @@ globalThis.BxShaders={"antialias": "#version 300 es\nprecision highp float;\npre
   // attach() covers the opposite order.
   const onMeta=(now,meta)=>{
    if(player.isStopped)return;t.metaId=video.requestVideoFrameCallback(onMeta);
+   // Direct capture records server/arrival times from its own frames (every decoded one).
+   if(player.bxDirect?.frames>0)return;
    const at=performance.now(),presented=meta?.presentedFrames;
    // Frames the browser presented between two callbacks never reached the treatment (nor the canvas).
-   if(Number.isFinite(presented)){if(presented>t.presented)keep(t.presentedLog,presented-t.presented,at);t.presented=presented;}
-   const rtp=meta&&Number.isFinite(meta.rtpTimestamp)?t.clock(meta.rtpTimestamp):null;
+   if(Number.isFinite(presented)){if(presented>t.presented){keep(t.presentedLog,presented-t.presented,at);player.bxEngine?.diagnostics.skipped(presented-t.presented-1);}t.presented=presented;}
+   const rtp=meta&&Number.isFinite(meta.rtpTimestamp)?t.clock(meta.rtpTimestamp):null,arrival=Number.isFinite(meta?.receiveTime)?meta.receiveTime:at;
    if(rtp!==null)keep(t.server,rtp,at);
-   keep(t.arrival,Number.isFinite(meta?.receiveTime)?meta.receiveTime:at,at);
+   keep(t.arrival,arrival,at);origin(player,t,rtp,arrival);
    if(rtp!==null&&!(t.pacer&&t.pacer.attach(rtp)))t.pendingRtp=rtp;
   };
   t.metaId=video.requestVideoFrameCallback(onMeta);
  }
+ // Server and arrival intervals for the measurement, from the frames reaching the treatment.
+ function origin(player,t,server,arrival){const diag=player.bxEngine?.diagnostics;
+  if(diag?.active&&t.lastArrival!=null&&t.lastArrival>hiddenAt){if(server!==null&&t.lastServer!=null)diag.interval('server',server-t.lastServer);diag.interval('arrival',arrival-t.lastArrival);}
+  t.lastServer=server;t.lastArrival=arrival;}
+ // Switching between video and direct capture changes the clocks: start the origin windows over.
+ function clearOrigin(player){const t=player.bxTiming;if(!t)return;t.server.length=0;t.arrival.length=0;t.presentedLog.length=0;t.lastServer=t.lastArrival=null;t.presented=undefined;}
  function stopPacer(player){const t=player.bxTiming;if(!t?.pacer)return;if(t.raf!==null)cancelAnimationFrame(t.raf);t.raf=null;t.pacer=null;t.shown=null;player.bxEngine?.releasePaced();}
  function stopTiming(player){const t=player.bxTiming;if(!t)return;stopPacer(player);if(t.metaId!==null)player.$video?.cancelVideoFrameCallback?.(t.metaId);player.bxTiming=null;}
  function ensurePacer(player,mode){
   const t=player.bxTiming;if(t.pacer?.mode===mode)return t.pacer;
-  stopPacer(player);t.pacer=BxRestoration.createPacer(mode);
+  stopPacer(player);t.pacer=BxRestoration.createPacer(mode);t.pacerDropped=0;
   const tick=()=>{
    if(!t.pacer||player.isStopped){t.raf=null;return;}
    t.raf=requestAnimationFrame(tick);
-   const now=performance.now(),f=t.pacer.tick(now);t.lastTick=now;
-   if(f&&player.bxEngine&&player.gl&&!player.gl.isContextLost()&&player.bxEngine.present(f.slot)){t.shown=f.slot;shownAt(t,now);player.gl.useProgram(player.program);}
+   const now=performance.now(),f=t.pacer.tick(now),engine=player.bxEngine;t.lastTick=now;
+   const dropped=t.pacer.dropped;if(dropped>t.pacerDropped){engine?.diagnostics.dropped(dropped-t.pacerDropped);t.pacerDropped=dropped;}
+   if(f&&engine&&player.gl&&!player.gl.isContextLost()&&engine.present(f.slot)){t.shown=f.slot;shownAt(t,now,engine);if(f.arrival>hiddenAt)engine.diagnostics.interval('wait',now-f.arrival);player.gl.useProgram(player.program);}
   };
   t.raf=requestAnimationFrame(tick);return t.pacer;
  }
@@ -888,11 +995,12 @@ globalThis.BxShaders={"antialias": "#version 300 es\nprecision highp float;\npre
   const direct=!!player.bxDirect;
   status.mode=api.diagnostic?'diagnostic':settings.mode;status.frames=player.bxEngine.frames;status.lastFrame=Date.now();status.resolution=`${w}×${h} → ${ow}×${oh}`;
   status.gpuP95=player.bxEngine.budget.p95;status.measurement=player.bxEngine.ext?'gpu':'cadence';status.adaptation=player.bxEngine.budget.reason;
+  status.gpuEstimate=player.bxEngine.ext?null:player.bxEngine.gpuEstimate;
   status.display=shown;
   const now=performance.now();if(newFrame)player.bxTimes.push(now);while(player.bxTimes.length>1&&now-player.bxTimes[0]>2000)player.bxTimes.shift();
   status.fps=player.bxTimes.length>1?(player.bxTimes.length-1)*1000/(player.bxTimes.at(-1)-player.bxTimes[0]):null;status.pacing=statsOf(timing.display)||BxRestoration.frameStats(player.bxTimes);
   // With direct capture every decoded frame reaches the treatment: the video element's skips do not apply.
-  status.origin={server:statsOf(timing.server),arrival:statsOf(timing.arrival),presented:direct?null:timing.presentedLog.reduce((a,e)=>a+e[1],0),missed:direct?null:timing.presentedLog.reduce((a,e)=>a+e[1]-1,0)};
+  status.origin={server:statsOf(timing.server),arrival:statsOf(timing.arrival),arrivalNetwork:direct?!!timing.arrivalNetwork:true,presented:direct?null:timing.presentedLog.reduce((a,e)=>a+e[1],0),missed:direct?null:timing.presentedLog.reduce((a,e)=>a+e[1]-1,0)};
   status.fluidity=timing.pacer?{mode:timing.pacer.mode,extraMs:timing.pacer.extraDelayMs,dropped:timing.pacer.dropped}:null;
   if(direct)status.capture={active:true,frames:player.bxDirect.rendered,reason:''};
   if(newFrame&&now-(player.bxCadenceMark||0)>2000){
@@ -924,16 +1032,22 @@ globalThis.BxShaders={"antialias": "#version 300 es\nprecision highp float;\npre
  function stopDirect(player,reason){
   const d=player.bxDirect;if(!d)return;player.bxDirect=null;
   try{d.reader.cancel().catch(()=>{});}catch{}d.track.stop();
-  status.capture={active:false,frames:d.rendered,reason};
+  status.capture={active:false,frames:d.rendered,reason};clearOrigin(player);
  }
  function renderDirect(player,frame){
   const d=player.bxDirect,t=player.bxTiming;
   if(!d||!player.bxEngine||player.isStopped||!player.gl||player.gl.isContextLost())return;
   const w=frame.displayWidth,h=frame.displayHeight;if(!w||!h)return;
+  // Every decoded frame: capture time (VideoFrame timestamp) and arrival, before the FPS limit.
+  // Arrival: the network receive time when the browser gives VideoFrame metadata, otherwise the delivery
+  // to this script, which adds decoding and main-thread delays (status.origin.arrivalNetwork false).
+  const at=performance.now(),ms=frame.timestamp/1000;let meta=null;try{meta=frame.metadata?.();}catch{}
+  const network=Number.isFinite(meta?.receiveTime),arrival=network?meta.receiveTime:at;
+  if(t){if(d.frames===1)clearOrigin(player);t.arrivalNetwork=network;keep(t.server,ms,at);keep(t.arrival,arrival,at);origin(player,t,ms,arrival);}
   // Nothing is shown while the page is hidden (no rAF): close frames without processing them.
   if(document.hidden||t?.pacer&&t.lastTick!=null&&performance.now()-t.lastTick>250)return;
   // Better xCloud's FPS limit, on capture time (frames may arrive bunched); same rule as shouldDraw.
-  const fps=player.targetFps,ms=frame.timestamp/1000;
+  const fps=player.targetFps;
   if(fps<=0)return;
   if(fps<60){const interval=1000/fps;
    if(d.nextAt==null||ms-d.nextAt>interval)d.nextAt=ms+interval;else if(ms<d.nextAt-2)return;else d.nextAt+=interval;}
@@ -991,7 +1105,7 @@ globalThis.BxShaders={"antialias": "#version 300 es\nprecision highp float;\npre
    }else{
     if(timing.pacer)stopPacer(this);
     if(!this.bxEngine.render(video,ow,oh,renderSettings,time,api.diagnostic))return;
-    if(newFrame)shownAt(timing,performance.now());
+    if(newFrame)shownAt(timing,performance.now(),this.bxEngine);
    }
    this.bxLastFrame=token;this.bxLastSettings=controls;
    publish(this,{w,h,ow,oh,shown,newFrame,timing});
@@ -1014,7 +1128,7 @@ globalThis.BxShaders={"antialias": "#version 300 es\nprecision highp float;\npre
 // every action a <button>; nothing uses <select>, <svg> or the bx-focusable class.
 (() => {
  const api = window.BxImageFilter, settings = api.settings, status = api.status, doc = document;
- const VERSION = 'v9.7';
+ const VERSION = 'v9.7.1';
  const num = v => typeof v === 'number' && Number.isFinite(v);
 
  /* =============================== api.ui =============================== */
@@ -1061,6 +1175,9 @@ globalThis.BxShaders={"antialias": "#version 300 es\nprecision highp float;\npre
    case 'buffer': { const r = c.r || 0; return lo(Math.max(40, r + 15), Math.max(60, r + 40)); }
    case 'decode': return lo(9, 12);
    case 'gpu': { const L = c.L || 10; return lo(.66 * L, L); }
+   // Fence estimate (no GPU timer): time until the GPU finished a frame. Frames overlap in the GPU queue,
+   // so a frame can take longer than its interval without losing FPS; over two intervals it falls behind.
+   case 'gpu-est': return lo(T, 2 * T);
    case 'total': return lo(70, 110);
    case 'bitrate': return c.height >= 1000 ? hi(12, 7) : hi(6, 3.5);
    // QP 28 is the neutral level of the compression adaptation: typical streams read good.
@@ -1095,7 +1212,8 @@ globalThis.BxShaders={"antialias": "#version 300 es\nprecision highp float;\npre
  function latency() {
   const n = status.net, on = api.active, v = k => n && num(n[k]) ? n[k] : null;
   const rtt = v('rttMs'), buffer = v('bufferMs'), decode = v('decodeMs');
-  const gpu = on && status.measurement === 'gpu' && num(status.gpuP95) ? status.gpuP95 : 0;
+  // Without a GPU timer, the fence estimate's median: the time until the GPU finished the frame.
+  const gpu = !on ? 0 : status.measurement === 'gpu' ? (num(status.gpuP95) ? status.gpuP95 : 0) : num(status.gpuEstimate?.p50) ? status.gpuEstimate.p50 : 0;
   const wait = on && status.fluidity && num(status.fluidity.extraMs) ? status.fluidity.extraMs : 0;
   return {rtt, buffer, decode, gpu, wait, total: rtt === null ? null : rtt + (buffer || 0) + (decode || 0) + gpu + wait};
  }
@@ -1189,14 +1307,18 @@ globalThis.BxShaders={"antialias": "#version 300 es\nprecision highp float;\npre
   s.gDev = grade('dev', p?.deviationMs, s); s.gP95 = grade('p95', p?.p95Ms, s); s.gHit = grade('count', p?.hitches);
   s.missed = o && num(o.missed) ? o.missed : null;
   s.gMiss = s.missed === null ? (s.direct ? 'good' : 'none') : grade('count', s.missed);
-  s.gSrv = grade('dev', o?.server?.deviationMs, s); s.gArr = grade('dev', o?.arrival?.deviationMs, s);
+  s.gSrv = grade('dev', o?.server?.deviationMs, s); s.gArr = o && o.arrivalNetwork === false ? 'none' : grade('dev', o?.arrival?.deviationMs, s);
   s.gWait = fl ? grade('wait', fl.extraMs, s) : 'none';
   s.gRtt = grade('rtt', lat.rtt); s.gBuf = grade('buffer', lat.buffer, {r: settings.smoothing}); s.gDec = grade('decode', lat.decode);
   s.gDecoder = grade('decoder', n?.decoder); s.gTotal = grade('total', lat.total);
   s.gpu = on && status.measurement === 'gpu' && num(status.gpuP95) ? status.gpuP95 : null;
   s.L = settings.gpuBudget || 10; s.gGpu = grade('gpu', s.gpu, {L: s.L});
+  s.gpuEst = on && status.measurement !== 'gpu' && num(status.gpuEstimate?.p95) ? status.gpuEstimate.p95 : null; s.gGpuEst = grade('gpu-est', s.gpuEst, {T});
+  s.gpuShow = s.gpu !== null ? s.gpu : s.gpuEst; s.gGpuShow = s.gpu !== null ? s.gGpu : s.gGpuEst;
   s.gBitrate = grade('bitrate', n?.bitrateMbps, {height: n?.height});
   s.qp = num(status.adaptive?.qpMean) ? status.adaptive.qpMean : n && num(n.qp) ? n.qp : null; s.gQp = grade('qp', s.qp);
+  // Bitrate estimate when the browser reports no QP (Android WebView): shown as "≈", never as a QP reading.
+  s.qpEst = s.qp === null && status.adaptive?.source === 'bitrate' && num(status.adaptive.qpEstimate) ? status.adaptive.qpEstimate : null;
   s.gLoss = grade('loss', n?.lossPct); s.gHeight = grade('height', n?.height);
   s.gCapture = s.direct ? 'good' : settings.fluidity !== 'off' && settings.capture === 'direct' ? 'ok' : 'none';
   let lv = 0; for (const w of status.warnings || []) lv = Math.max(lv, LEVEL[w.level] || 0);
@@ -2029,7 +2151,7 @@ globalThis.BxShaders={"antialias": "#version 300 es\nprecision highp float;\npre
   else { setParts(s2.sum, [[(preset ? preset.label : 'Personalizado') + ' · Nitidez ' + fmt(settings.sharpness, 1), null]]); setA(s2.sum, 'data-g', null); }
   const active = TREAT.filter(k => settings[k] > 0).length;
   setParts(s3.sum, [[`${active} de 7 ativos` + (adaptiveApplying() ? ' · adaptado' : ''), null]]);
-  setParts(s4.sum, [['GPU ', null], [s.gpu === null ? '—' : fmtMs(s.gpu) + ' ms', G('gpu', s.gGpu)], [' · Lat. ', null], [s.lat.total === null ? '—' : fmtInt(s.lat.total) + ' ms', G('total', s.gTotal)]]);
+  setParts(s4.sum, [['GPU ', null], [s.gpuShow === null ? '—' : (s.gpu === null ? '≈' : '') + fmtMs(s.gpuShow) + ' ms', G(s.gpu !== null ? 'gpu' : 'gpu-est', s.gGpuShow)], [' · Lat. ', null], [s.lat.total === null ? '—' : fmtInt(s.lat.total) + ' ms', G('total', s.gTotal)]]);
   if (api.measuring) { setParts(s5.sum, [['Medindo ' + (clock() || '…'), null]]); setA(s5.sum, 'data-g', 'ok'); }
   else if (api.diagnostic) { setParts(s5.sum, [['Diagnóstico ligado', null]]); setA(s5.sum, 'data-g', 'info'); }
   else { setParts(s5.sum, [['Indicadores: ' + ({off: 'desligados', compact: 'Compacto', full: 'Completo'}[settings.hud] || ''), null]]); setA(s5.sum, 'data-g', null); }
@@ -2073,13 +2195,14 @@ globalThis.BxShaders={"antialias": "#version 300 es\nprecision highp float;\npre
   const a = status.adaptive;
   if (!valueOf('adaptive')) { setParts(els.adaptiveOut, [['Desligado: usa os valores do Ajuste fino.', 'lab']]); setA(els.qpPos, 'data-hide', ''); return; }
   if (settings.mode !== 'filtered') setParts(els.adaptiveOut, [['Pausado durante a Comparação.', 'ok']]);
-  else if (!a) setParts(els.adaptiveOut, [['Aguardando o QP do stream…', 'lab']]);
+  else if (!a) setParts(els.adaptiveOut, [[status.net && num(status.net.bitrateMbps) && !num(status.net.qp) ? 'Este aparelho não informa o QP: estimando pela taxa de bits…' : 'Aguardando o QP do stream…', 'lab']]);
   else {
-   const k = a.scales || {};
-   setParts(els.adaptiveOut, [['QP ', 'lab'], [fmtInt(a.qp), G('qp-now', grade('qp', a.qp))], [' · médio ', 'lab'], [fmt(a.qpMean, 1), G('qp', s.gQp)], [' · nível ', 'lab'], [fmt(a.level, 1), null],
-    [' → limpeza ×' + fmt(k.cleanup, 2) + ' · degradês ×' + fmt(k.deband, 2) + ' · detalhe ×' + fmt(k.detail, 2), 'lab']]);
+   const k = a.scales || {}, scales = [' → limpeza ×' + fmt(k.cleanup, 2) + ' · degradês ×' + fmt(k.deband, 2) + ' · detalhe ×' + fmt(k.detail, 2), 'lab'];
+   if (a.source === 'bitrate') setParts(els.adaptiveOut, [['Estimado pela taxa de bits (sem QP neste aparelho): ', 'lab'], [fmt(a.bitsPerPixel, 2) + ' bit/pixel', null], [' ≈ QP ', 'lab'], [fmtInt(a.qpEstimate), G('qp', grade('qp', a.qpEstimate))], [' · nível ', 'lab'], [fmt(a.level, 1), null], scales]);
+   else setParts(els.adaptiveOut, [['QP ', 'lab'], [fmtInt(a.qp), G('qp-now', grade('qp', a.qp))], [' · médio ', 'lab'], [fmt(a.qpMean, 1), G('qp', s.gQp)], [' · nível ', 'lab'], [fmt(a.level, 1), null], scales]);
   }
-  if (a && num(a.qpMean)) { setA(els.qpPos, 'data-hide', null); setS(els.qpPos, 'transform', `translateX(${(Math.min(1, Math.max(0, (a.qpMean - 20) / 16)) * 100).toFixed(1)}%)`); }
+  const pos = a && num(a.qpMean) ? a.qpMean : a && num(a.qpEstimate) ? a.qpEstimate : null;
+  if (pos !== null) { setA(els.qpPos, 'data-hide', null); setS(els.qpPos, 'transform', `translateX(${(Math.min(1, Math.max(0, (pos - 20) / 16)) * 100).toFixed(1)}%)`); }
   else setA(els.qpPos, 'data-hide', '');
  }
  function updateAjuste() {
@@ -2096,7 +2219,15 @@ globalThis.BxShaders={"antialias": "#version 300 es\nprecision highp float;\npre
  }
  function updateDesempenho(s) {
   const L = settings.gpuBudget || 10, gpuG = G('gpu', s.gGpu);
-  if (status.measurement === 'cadence' && s.on) {
+  if (status.measurement === 'cadence' && s.on && s.gpuEst !== null) {
+   // Fence estimate against the frame interval (33 ms at 30 FPS): an upper bound, it includes queued work.
+   const T = 1000 / s.N, scaleMax = Math.max(2 * T, s.gpuEst), g = G('gpu-est', s.gGpuEst);
+   setA(els.gpuMeter, 'data-hide', null);
+   setT(els.gpuText, `≈${fmtMs(s.gpuEst)} ms de ${fmtInt(T)} ms por quadro`); setA(els.gpuText, 'data-g', g);
+   setS(els.gpuFill, 'transform', `scaleX(${(s.gpuEst / scaleMax).toFixed(3)})`); setA(els.gpuFill, 'data-g', g);
+   setS(els.gpuTick, 'transform', `translateX(${(T / scaleMax * 100).toFixed(1)}%)`);
+   setT(els.gpuNote, 'Estimado (sem cronômetro de GPU neste navegador): até a GPU concluir o quadro, com a fila. A redução automática segue a cadência.'); setA(els.gpuNote, 'data-hide', null);
+  } else if (status.measurement === 'cadence' && s.on) {
    setT(els.gpuText, '—'); setA(els.gpuText, 'data-g', 'none'); setS(els.gpuFill, 'transform', 'scaleX(0)'); setA(els.gpuMeter, 'data-hide', '');
    setT(els.gpuNote, 'Sem cronômetro de GPU neste navegador: adapta pela cadência.'); setA(els.gpuNote, 'data-hide', null);
   } else {
@@ -2111,7 +2242,7 @@ globalThis.BxShaders={"antialias": "#version 300 es\nprecision highp float;\npre
   const lat = s.lat, flOn = valueOf('fluidity') !== 'off', segs = [lat.rtt, lat.buffer, lat.decode, lat.gpu, flOn ? lat.wait : 0];
   [...els.latBar.children].forEach((sp, i) => setS(sp, 'flex-grow', String(num(segs[i]) ? Math.max(0, +segs[i].toFixed(1)) : 0)));
   setT(els.latTotal, lat.total === null ? '—' : '≈' + fmtInt(lat.total) + ' ms'); setA(els.latTotal, 'data-g', G('total', s.gTotal));
-  const legend = [[lat.rtt, 'rtt', s.gRtt], [lat.buffer, 'buf', s.gBuf], [lat.decode, 'dec', s.gDec], [s.gpu, 'gpu', s.gGpu], [s.fl ? s.fl.extraMs : null, 'wait', s.gWait]];
+  const legend = [[lat.rtt, 'rtt', s.gRtt], [lat.buffer, 'buf', s.gBuf], [lat.decode, 'dec', s.gDec], [s.gpu !== null ? s.gpu : s.gpuEst !== null ? lat.gpu : null, s.gpu !== null ? 'gpu' : 'gpu-est', s.gGpuShow], [s.fl ? s.fl.extraMs : null, 'wait', s.gWait]];
   legend.forEach(([v, key, g], i) => { setT(els.leg[i].v, num(v) ? fmtMs(v) + ' ms' : '—'); setA(els.leg[i].v, 'data-g', num(v) ? G(key, g) : 'none'); });
   setA(els.leg[4].row, 'data-hide', flOn ? null : '');
   const n = s.net;
@@ -2120,7 +2251,7 @@ globalThis.BxShaders={"antialias": "#version 300 es\nprecision highp float;\npre
   setParts(els.decoder, [['Decodificação ', 'lab'], [{hardware: 'hardware', software: 'software (CPU)'}[n.decoder] || 'não informada', G('dec-kind', s.gDecoder)],
    [(n.implementation ? ' (' + n.implementation + ')' : '') + ' · ', null], [fmtMs(n.decodeMs) + ' ms', G('dec', s.gDec)]]);
   setParts(els.quality, [['Bitrate ', 'lab'], [num(n.bitrateMbps) ? fmt(n.bitrateMbps, 1) + ' Mb/s' : '—', G('bitrate', s.gBitrate)], [' · perda ', 'lab'], [num(n.lossPct) ? fmt(n.lossPct, 1) + '%' : '—', G('loss', s.gLoss)],
-   [' · QP ', 'lab'], [fmtInt(s.qp), G('qp', s.gQp)]]);
+   ...(s.qpEst !== null ? [[' · QP ', 'lab'], ['≈' + fmtInt(s.qpEst) + ' (pela taxa de bits)', G('qp', grade('qp', s.qpEst))]] : [[' · QP ', 'lab'], [fmtInt(s.qp), G('qp', s.gQp)]])]);
   setParts(els.drops, [['Decodificador (1 s): ', 'lab'], [fmtInt(n.framesDropped) + ' descartados', n.framesDropped > 0 ? 'ok' : null], [' · ', 'lab'], [fmtInt(n.freezes) + ' congelamentos', n.freezes > 0 ? 'ok' : null]]);
  }
  function updateMeasure() {
@@ -2565,7 +2696,7 @@ globalThis.BxShaders={"antialias": "#version 300 es\nprecision highp float;\npre
    add('decoder', x.gDecoder, 'DECOD CPU');
    add('height', x.gHeight, net?.height + 'p');
    add('wait', x.gWait, 'ESP +' + fmtInt(x.fl?.extraMs));
-   add('gpu', x.gGpu, 'GPU ' + fmt(x.gpu, 1));
+   add('gpu', x.gGpuShow, (x.gpu !== null ? 'GPU ' : 'GPU ≈') + fmt(x.gpuShow, 1));
    for (let i = 0; i < CHIPS; i++) { put(f.chips[i], alerts[i] || '', null); off(f.chipEls[i], !alerts[i]); }
    if (f.l3) off(f.l3, !alerts.length);
    look = look || alerts.length > 0;
@@ -2587,7 +2718,7 @@ globalThis.BxShaders={"antialias": "#version 300 es\nprecision highp float;\npre
    put(f.total, x.lat.total === null ? '—' : '≈' + fmtInt(x.lat.total) + ' ms', totalG);
    const l = x.lat, segs = [l.rtt, l.buffer, l.decode, l.gpu, flOn ? l.wait : 0];
    for (let i = 0; i < 5; i++) prop(f.bar.children[i], 'flex-grow', String(num(segs[i]) ? Math.max(0, +segs[i].toFixed(1)) : 0));
-   const legend = [[l.rtt, x.gRtt, 'rtt'], [l.buffer, x.gBuf, 'buf'], [l.decode, x.gDec, 'dec'], [x.gpu, x.gGpu, 'gpu'], [x.fl ? x.fl.extraMs : null, x.gWait, 'wait']];
+   const legend = [[l.rtt, x.gRtt, 'rtt'], [l.buffer, x.gBuf, 'buf'], [l.decode, x.gDec, 'dec'], [x.gpu !== null ? x.gpu : x.gpuEst !== null ? l.gpu : null, x.gGpuShow, x.gpu !== null ? 'gpu' : 'gpu-est'], [x.fl ? x.fl.extraMs : null, x.gWait, 'wait']];
    legend.forEach(([v, gr, k], i) => put(f.leg[i].v, num(v) ? fmtMs(v) : '—', num(v) ? G(k, gr) : 'none'));
    off(f.leg[4].k, !flOn); off(f.leg[4].v.e, !flOn);
    const r = on ? /(\d+)\s*×\s*(\d+)\s*→\s*(\d+)\s*×\s*(\d+)/.exec(status.resolution || '') : null, inH = r ? +r[2] : net?.height || null;

@@ -253,7 +253,7 @@
    add('decoder', x.gDecoder, 'DECOD CPU');
    add('height', x.gHeight, net?.height + 'p');
    add('wait', x.gWait, 'ESP +' + fmtInt(x.fl?.extraMs));
-   add('gpu', x.gGpu, 'GPU ' + fmt(x.gpu, 1));
+   add('gpu', x.gGpuShow, (x.gpu !== null ? 'GPU ' : 'GPU ≈') + fmt(x.gpuShow, 1));
    for (let i = 0; i < CHIPS; i++) { put(f.chips[i], alerts[i] || '', null); off(f.chipEls[i], !alerts[i]); }
    if (f.l3) off(f.l3, !alerts.length);
    look = look || alerts.length > 0;
@@ -275,7 +275,7 @@
    put(f.total, x.lat.total === null ? '—' : '≈' + fmtInt(x.lat.total) + ' ms', totalG);
    const l = x.lat, segs = [l.rtt, l.buffer, l.decode, l.gpu, flOn ? l.wait : 0];
    for (let i = 0; i < 5; i++) prop(f.bar.children[i], 'flex-grow', String(num(segs[i]) ? Math.max(0, +segs[i].toFixed(1)) : 0));
-   const legend = [[l.rtt, x.gRtt, 'rtt'], [l.buffer, x.gBuf, 'buf'], [l.decode, x.gDec, 'dec'], [x.gpu, x.gGpu, 'gpu'], [x.fl ? x.fl.extraMs : null, x.gWait, 'wait']];
+   const legend = [[l.rtt, x.gRtt, 'rtt'], [l.buffer, x.gBuf, 'buf'], [l.decode, x.gDec, 'dec'], [x.gpu !== null ? x.gpu : x.gpuEst !== null ? l.gpu : null, x.gGpuShow, x.gpu !== null ? 'gpu' : 'gpu-est'], [x.fl ? x.fl.extraMs : null, x.gWait, 'wait']];
    legend.forEach(([v, gr, k], i) => put(f.leg[i].v, num(v) ? fmtMs(v) : '—', num(v) ? G(k, gr) : 'none'));
    off(f.leg[4].k, !flOn); off(f.leg[4].v.e, !flOn);
    const r = on ? /(\d+)\s*×\s*(\d+)\s*→\s*(\d+)\s*×\s*(\d+)/.exec(status.resolution || '') : null, inH = r ? +r[2] : net?.height || null;

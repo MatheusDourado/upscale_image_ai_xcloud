@@ -58,7 +58,7 @@ probe=r'''
  prefs['video.processing.mode']='quality';player.updateFrame();check(player.gl.getError()===player.gl.NO_ERROR,'Native quality mode remains valid');
  const qualityPixels=readPlayer();check(Math.abs(qualityPixels[(40*128+20)*4]-85)<=1,'Quality halo limiter preserves uniform region luminance');
  const menu=document.createElement('section');document.body.append(menu);BxImageFilter.mountControls(menu);
- check(menu.querySelector('[data-bx-restoration="v9.7"]')&&!document.getElementById('bx-image-filter-panel'),'Controls mount inside supplied Better xCloud menu');
+ check(menu.querySelector('[data-bx-restoration="v9.7.1"]')&&!document.getElementById('bx-image-filter-panel'),'Controls mount inside supplied Better xCloud menu');
  const sleep=ms=>new Promise(r=>setTimeout(r,ms)),root=menu.querySelector('.bxif-panel');
  // Better xCloud's D-pad on a focused range: value = parseInt(value) + parseInt(step) * dir, then a non-bubbling 'input'.
  const pad=(el,dir)=>{el.value=(parseInt(el.value)+parseInt(el.step)*dir).toString();el.dispatchEvent(new InputEvent('input'));};
@@ -144,7 +144,7 @@ probe=r'''
   check(!player.bxTiming.pacer&&!Object.keys(player.bxEngine.targets).some(n=>n.startsWith('paced')),'Turning Fluidez off releases its textures and loop');
   const copyButton=[...menu2.querySelectorAll('button')].find(b=>b.textContent==='Copiar configuração');copyButton.click();await new Promise(r=>setTimeout(r,200));
   const exported=JSON.parse(menu2.querySelector('textarea').value);
-  check(exported.treatment&&'smoothing' in exported.treatment&&'stream.video.resolution' in exported.betterXcloud&&exported.build==='6.7.12-imagefilter.9.7','Copy configuration exports treatment and Better xCloud settings');
+  check(exported.treatment&&'smoothing' in exported.treatment&&'stream.video.resolution' in exported.betterXcloud&&exported.build==='6.7.12-imagefilter.9.7.1','Copy configuration exports treatment and Better xCloud settings');
   check(!menu2.querySelector('[aria-label="Codec (teste)"]')&&!menu2.querySelector('[data-bxif-key=refreshRate]'),'No codec test; refresh-rate control only inside the Android app');
   delete window.STATES;}
  // Exercise the browser's actual receiver setter, without media permissions or a remote service.
@@ -202,6 +202,16 @@ probe=r'''
    await sleep(1200);const text=menu2.querySelector('.bxif-panel').textContent;
    check(!/undefined|NaN/.test(text)&&!/ · \? /.test(text),'Null telemetry fields render as dashes, never undefined/NaN/?');
    BxImageFilter.status.net=net;BxImageFilter.status.fluidity=fl;}
+  // Android WebView: no QP and no GPU timer. The panel shows the bitrate estimate and the fence time, marked as estimates.
+  {const st=BxImageFilter.status,saved={net:st.net,adaptive:st.adaptive,gpu:st.gpuEstimate,m:st.measurement};
+   st.net={codec:'H264 Main',profile:'Main',fpsReceived:30,decoder:'unknown',implementation:null,decodeMs:10.4,bufferMs:9.4,rttMs:20,bitrateMbps:9.1,lossPct:0,qp:null,framesDropped:0,freezes:0,width:1920,height:1080,bitsPerPixel:.15};
+   st.adaptive={source:'bitrate',qp:null,qpMean:null,qpEstimate:25.8,bitsPerPixel:.177,level:.3,scales:{cleanup:.84,deband:.84,detail:1.08}};
+   st.measurement='cadence';st.gpuEstimate={p50:4.2,p95:6.8,count:20};st.lastFrame=Date.now();
+   await sleep(1200);const text=menu2.querySelector('.bxif-panel').textContent;
+   check(/Estimado pela taxa de bits/.test(text)&&/0,18 bit\/pixel/.test(text)&&/QP ≈26 \(pela taxa de bits\)/.test(text),'Missing QP shows the bitrate estimate, marked as such');
+   check(/≈6,8 ms de \d+ ms por quadro/.test(text)&&/Estimado \(sem cronômetro/.test(text),'Missing GPU timer shows the fence estimate against the frame interval');
+   st.adaptive=null;await sleep(700);check(/não informa o QP/.test(menu2.querySelector('.bxif-panel').textContent),'Before the first estimate the panel says the device reports no QP');
+   st.net=saved.net;st.adaptive=saved.adaptive;st.gpuEstimate=saved.gpu;st.measurement=saved.m;}
   menu2.remove();await sleep(700);check(BxImageFilter.panel.timers()===0&&BxImageFilter.panelOpen===false,'Removed panel leaves no timers and closes telemetry');}
  // A GPU failure while Fluidez is on must also end its display loop, not only the engine.
  BxImageFilter.settings.fluidity='balanced';adapterInput.currentTime+=.033;player.updateFrame();
