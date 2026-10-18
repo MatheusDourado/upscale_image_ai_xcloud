@@ -166,3 +166,17 @@ test('pacer drops the oldest frames when the queue overflows and RTP clock unwra
  const clock=a.createRtpClock();assert.equal(clock(0xFFFFFF00),0);assert.ok(Math.abs(clock(0x00000200)-(0x300/90))<1e-9);assert.equal(clock(NaN),null);
  assert.equal(a.defaults.fluidity,'off');assert.equal(a.normalize({fluidity:'max'}).fluidity,'max');assert.equal(a.normalize({fluidity:'x'}).fluidity,'off');
 });
+test('max pacer locks to 30 FPS despite missing frames and its delay shrinks after a burst',()=>{
+ // Field export (Poco F7): server 34.0 ± 4.7 ms = 30 FPS with 2% of frames missing. A mean cadence of
+ // 34 ms drifted the grid until the delay hit its cap and frames were dropped.
+ const a=api();let seed=5;const rnd=()=>(seed=(seed*1103515245+12345)%2147483648)/2147483648;
+ const frames=[];for(let n=0;n<900;n++){if(rnd()<.02)continue;const rtp=n*1000/30;frames.push({rtp,arrival:rtp+40+rnd()*3+(n>=300&&n<330&&n%10===0?30:0)});}
+ for(let i=1;i<frames.length;i++)frames[i].arrival=Math.max(frames[i].arrival,frames[i-1].arrival+.5);
+ const p=a.createPacer('max'),shown=[];let i=0;
+ for(let t=0;t<31000;t+=1000/120){while(i<frames.length&&frames[i].arrival<=t){p.add({slot:'s',arrival:t,rtp:frames[i].rtp});i++;}const f=p.tick(t+1);if(f)shown.push([t+1,t+1-f.arrival]);}
+ assert.equal(p.cadenceMs,1000/30);assert.equal(p.dropped,0);
+ const mean=(from,to)=>{const d=shown.filter(([t])=>t>=from&&t<to).map(e=>e[1]);return d.reduce((x,y)=>x+y,0)/d.length;};
+ assert.ok(mean(11500,13500)>mean(25000,30000)+10&&mean(25000,30000)<12,`delay ${mean(11500,13500)} -> ${mean(25000,30000)} ms`);
+ // Calm stream: frames keep whole 30 FPS periods (a missing frame is held for two), none shown early.
+ const late=shown.filter(([t])=>t>20000).map(e=>e[0]);for(let k=1;k<late.length;k++)assert.ok(late[k]-late[k-1]>30,'interval '+(late[k]-late[k-1]));
+});

@@ -83,7 +83,7 @@
         if(count>=120000)return;segment.gpu.push(ms);count++;
       },
       disjoint(){if(recording)disjoints++;},
-      report(){return {schema:1,version:'9.6',build:globalThis.BxBuild??null,started,ended,stopReason,recording,metadata,disjoints,sampleLimit:120000,truncated:count>=120000||segments.length>=256,
+      report(){return {schema:1,version:'9.6.1',build:globalThis.BxBuild??null,started,ended,stopReason,recording,metadata,disjoints,sampleLimit:120000,truncated:count>=120000||segments.length>=256,
         segments:segments.map(({config,frames,first,last,gpu})=>{const sorted=[...gpu].sort((a,b)=>a-b);return {config,frames,durationMs:last-first,drawFps:last>first?(frames-1)*1000/(last-first):null,gpu:{count:gpu.length,p50:percentile(sorted,.5),p95:percentile(sorted,.95),p99:percentile(sorted,.99),samplesMs:[...gpu]}};})};}
     };
   }
@@ -150,22 +150,38 @@
   function createRtpClock(){let last=null,ms=0;return v=>{if(!Number.isFinite(v))return null;if(last===null){last=v;return ms;}
     let d=(v-last)>>>0;if(d>0x80000000)d-=0x100000000;last=v;ms+=d/90;return ms;};}
   // Frame pacer ("Fluidez"): frames are processed on arrival and shown on a steady clock instead of
-  // the moment they arrive. balanced: follows the server cadence (RTP capture times) plus an adaptive
-  // delay that grows when a frame comes late and shrinks slowly; max: fixed 30/60 FPS grid, also
-  // evening out an irregular game/server cadence. Without RTP times, the arrival cadence is used.
+  // the moment they arrive, delayed like a jitter buffer by the recent network transit.
+  // balanced: the clock is the server capture time (RTP), keeping the game's own cadence; max: an
+  // ideal 30/60 FPS grid that follows the capture clock's drift but not its jitter, also evening out
+  // an irregular game/server cadence. Without RTP times, both use the grid on arrival times.
   function createPacer(mode='balanced',{minDelay=3,lead=4,maxQueue=2}={}){
-    const queue=[],deltas=[],transits=[];let lastP=null,lastRef=null,cadence=null,dropped=0,extra=null;
-    // Cadence: mean of recent capture (or arrival) intervals, snapped to exact 30/60 FPS when close.
-    function updateCadence(ref){if(lastRef!==null){const d=ref-lastRef;if(d>2&&d<200){deltas.push(d);if(deltas.length>30)deltas.shift();}}lastRef=ref;
-      if(deltas.length>=5){const m=deltas.reduce((a,b)=>a+b,0)/deltas.length;cadence=Math.abs(m-1000/30)<.6?1000/30:Math.abs(m-1000/60)<.4?1000/60:m;}}
+    const queue=[],deltas=[],transits=[];let lastP=null,lastRef=null,clock=null,grid=null,offset=null,cadence=null,dropped=0,extra=null;
+    // Cadence: median of recent intervals, so missing source frames (a 2x interval) do not stretch it,
+    // snapped to exact 30/60 FPS when close. A mean of 34 ms (30 FPS, 2% missing) drifted the grid.
+    function updateCadence(d){if(d>2&&d<200){deltas.push(d);if(deltas.length>30)deltas.shift();}
+      if(deltas.length>=5){const m=[...deltas].sort((a,b)=>a-b)[deltas.length>>1];cadence=Math.abs(m-1000/30)<2?1000/30:Math.abs(m-1000/60)<1?1000/60:m;}}
     function schedule(f){
-      const ref=f.rtp??f.arrival;updateCadence(ref);
-      let p;
-      if(mode==='balanced'&&f.rtp!=null){
-        // Like a jitter buffer: delay = 95th percentile of recent transit (arrival - capture) + margin.
-        transits.push(f.arrival-f.rtp);if(transits.length>90)transits.shift();
-        const sorted=[...transits].sort((a,b)=>a-b);p=f.rtp+sorted[Math.min(sorted.length-1,Math.floor(sorted.length*.95))]+minDelay;
-      }else p=lastP===null||!cadence?f.arrival+minDelay:lastP+cadence;
+      const kind=f.rtp!=null?'rtp':'arrival',ref=f.rtp??f.arrival;
+      // RTP and arrival times are different clocks: switching restarts the clock-relative state.
+      if(kind!==clock){clock=kind;lastRef=grid=offset=null;transits.length=0;}
+      const interval=lastRef===null?null:ref-lastRef;if(interval!==null)updateCadence(interval);lastRef=ref;
+      let base=null,p;
+      if(mode==='balanced'&&kind==='rtp')base=ref;
+      else if(cadence){
+        // Whole periods since the last slot: a missing source frame holds the previous one for exactly
+        // two. Following the clock by 5% per frame absorbs drift and filters jitter.
+        const next=grid===null?ref:grid+cadence*Math.max(1,Math.round((ref-grid)/cadence));
+        base=grid=next+.05*(ref-next);
+      }
+      if(base!==null){
+        // Like a jitter buffer: delay = recent transit (arrival - clock) + margin, its 95th percentile
+        // (balanced) or the latest of the last 3 s (max: no frame misses its slot). It rises at once
+        // (a later slot only shows the frame late) and falls 0.25 ms per frame once late frames leave
+        // the window, so the slots stay steady instead of following each sample.
+        transits.push(f.arrival-base);if(transits.length>90)transits.shift();
+        const sorted=[...transits].sort((a,b)=>a-b),target=sorted[Math.min(sorted.length-1,Math.floor(sorted.length*(mode==='max'?1:.95)))]+minDelay;
+        offset=offset===null||target>offset?target:Math.max(target,offset-.25);p=base+offset;
+      }else p=f.arrival+minDelay;
       if(p<f.arrival)p=f.arrival;
       // Never let the schedule fall behind real time by more than about a frame and a half.
       if(cadence&&p-f.arrival>cadence*1.5)p=f.arrival+minDelay;
@@ -187,10 +203,10 @@
         const delay=now-f.arrival;extra=extra===null?delay:extra*.9+delay*.1;
         return f;
       },
-      reset(){queue.length=0;deltas.length=0;transits.length=0;lastP=lastRef=cadence=extra=null;dropped=0;}
+      reset(){queue.length=0;deltas.length=0;transits.length=0;lastP=lastRef=clock=grid=offset=cadence=extra=null;dropped=0;}
     };
   }
-  function downloadReport(report){const url=URL.createObjectURL(new Blob([JSON.stringify(report,null,2)],{type:'application/json'})),a=document.createElement('a');a.href=url;a.download='bx-v9.6-diagnostics-'+Date.now()+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
+  function downloadReport(report){const url=URL.createObjectURL(new Blob([JSON.stringify(report,null,2)],{type:'application/json'})),a=document.createElement('a');a.href=url;a.download='bx-v9.6.1-diagnostics-'+Date.now()+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
   const vertex='#version 300 es\nlayout(location=0) in vec2 position;void main(){gl_Position=vec4(position,0,1);}';
   class Engine {
     constructor(gl,shaders){

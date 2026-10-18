@@ -58,7 +58,7 @@ probe=r'''
  prefs['video.processing.mode']='quality';player.updateFrame();check(player.gl.getError()===player.gl.NO_ERROR,'Native quality mode remains valid');
  const qualityPixels=readPlayer();check(Math.abs(qualityPixels[(40*128+20)*4]-85)<=1,'Quality halo limiter preserves uniform region luminance');
  const menu=document.createElement('section');document.body.append(menu);BxImageFilter.mountControls(menu);
- check(menu.querySelector('[data-bx-restoration="v9.6"]')&&!document.getElementById('bx-image-filter-panel'),'Controls mount inside supplied Better xCloud menu');
+ check(menu.querySelector('[data-bx-restoration="v9.6.1"]')&&!document.getElementById('bx-image-filter-panel'),'Controls mount inside supplied Better xCloud menu');
  check(menu.querySelectorAll("input[type=range]").length===8,"Sharpness, neural, compression, gradient, chroma, detail, temporal and AA sliders added");check(menu.querySelector("input[aria-label=Nitidez]")?.step==="0.5","Panel sharpness slider uses half steps");
  const sharpening=menu.querySelector('[aria-label="Nitidez final"]');sharpening.value='rcas';sharpening.dispatchEvent(new Event('change'));player.updateFrame();
  check(BxImageFilter.settings.sharpening==='rcas'&&player.gl.getError()===player.gl.NO_ERROR,'RCAS selector renders through native adapter');
@@ -104,7 +104,7 @@ probe=r'''
   check(!player.bxTiming.pacer&&!Object.keys(player.bxEngine.targets).some(n=>n.startsWith('paced')),'Turning Fluidez off releases its textures and loop');
   const copyButton=[...menu2.querySelectorAll('button')].find(b=>b.textContent==='Copiar configuração');copyButton.click();await new Promise(r=>setTimeout(r,200));
   const exported=JSON.parse(menu2.querySelector('textarea').value);
-  check(exported.treatment&&'smoothing' in exported.treatment&&'stream.video.resolution' in exported.betterXcloud&&exported.build==='6.7.12-imagefilter.9.6','Copy configuration exports treatment and Better xCloud settings');
+  check(exported.treatment&&'smoothing' in exported.treatment&&'stream.video.resolution' in exported.betterXcloud&&exported.build==='6.7.12-imagefilter.9.6.1','Copy configuration exports treatment and Better xCloud settings');
   check(!menu2.querySelector('select[aria-label="Codec (teste)"]')&&!menu2.querySelector('select[aria-label="Taxa da tela (app)"]'),'No codec test; refresh-rate control only inside the Android app');
   delete window.STATES;}
  // Exercise the browser's actual receiver setter, without media permissions or a remote service.
@@ -131,6 +131,14 @@ probe=r'''
  const stoppedPlayer=new WebGL2Player(adapterInput);const pending=stoppedPlayer.setupShaders();stoppedPlayer.destroy();await pending;check(!stoppedPlayer.bxEngine,'Destroy during asynchronous setup does not resurrect engine');
 
 
+ // requestVideoFrameCallback metadata: presented-frame gaps are counted and a newly presented frame is drawn.
+ {const rvfcInput=document.createElement('canvas');rvfcInput.width=128;rvfcInput.height=96;rvfcInput.currentTime=5;let onMeta=null;
+  rvfcInput.requestVideoFrameCallback=cb=>{onMeta=cb;return 1;};rvfcInput.cancelVideoFrameCallback=()=>{};
+  const rvfcPlayer=new WebGL2Player(rvfcInput);await rvfcPlayer.setupShaders();
+  onMeta(0,{presentedFrames:10});rvfcPlayer.updateFrame();const drawn=rvfcPlayer.bxEngine.frames;
+  onMeta(0,{presentedFrames:13});rvfcPlayer.updateFrame();
+  check(rvfcPlayer.bxEngine.frames===drawn+1&&BxImageFilter.status.origin.presented===3&&BxImageFilter.status.origin.missed===2,'Presented frames that skipped the treatment are counted; the new one is drawn');
+  rvfcPlayer.destroy();}
  // Reference sharpening keeps one source texel between taps when the output is larger than the video.
  {const overshoot=scale=>{const c=document.createElement('canvas');c.width=64*scale;c.height=32*scale;
    const g=c.getContext('webgl2',{preserveDrawingBuffer:true,antialias:false}),e=new BxRestoration.Engine(g,BxShaders);

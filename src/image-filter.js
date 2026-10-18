@@ -36,14 +36,16 @@
  const statsOf=list=>BxRestoration.frameStats(list.map(e=>e[1]));
  function startTiming(player){
   if(player.bxTiming)return;
-  const t=player.bxTiming={server:[],arrival:[],display:[],clock:BxRestoration.createRtpClock(),pendingRtp:null,metaId:null,raf:null,pacer:null,shown:null};
+  const t=player.bxTiming={server:[],arrival:[],display:[],presentedLog:[],clock:BxRestoration.createRtpClock(),pendingRtp:null,metaId:null,raf:null,pacer:null,shown:null};
   const video=player.$video;if(!video?.requestVideoFrameCallback)return;
   // Registered before Better xCloud's own draw callback, so a frame's metadata usually comes first;
   // attach() covers the opposite order.
   const onMeta=(now,meta)=>{
    if(player.isStopped)return;t.metaId=video.requestVideoFrameCallback(onMeta);
-   if(Number.isFinite(meta?.presentedFrames))t.presented=meta.presentedFrames;
-   const rtp=meta&&Number.isFinite(meta.rtpTimestamp)?t.clock(meta.rtpTimestamp):null,at=performance.now();
+   const at=performance.now(),presented=meta?.presentedFrames;
+   // Frames the browser presented between two callbacks never reached the treatment (nor the canvas).
+   if(Number.isFinite(presented)){if(presented>t.presented)keep(t.presentedLog,presented-t.presented,at);t.presented=presented;}
+   const rtp=meta&&Number.isFinite(meta.rtpTimestamp)?t.clock(meta.rtpTimestamp):null;
    if(rtp!==null)keep(t.server,rtp,at);
    keep(t.arrival,Number.isFinite(meta?.receiveTime)?meta.receiveTime:at,at);
    if(rtp!==null&&!(t.pacer&&t.pacer.attach(rtp)))t.pendingRtp=rtp;
@@ -132,7 +134,7 @@
    status.gpuP95=this.bxEngine.budget.p95;status.measurement=this.bxEngine.ext?'gpu':'cadence';status.adaptation=this.bxEngine.budget.reason;
    status.display=shown;
    const now=performance.now();if(newFrame)this.bxTimes.push(now);while(this.bxTimes.length>1&&now-this.bxTimes[0]>2000)this.bxTimes.shift();
-   status.fps=this.bxTimes.length>1?(this.bxTimes.length-1)*1000/(this.bxTimes.at(-1)-this.bxTimes[0]):null;status.pacing=statsOf(timing.display)||BxRestoration.frameStats(this.bxTimes);status.origin={server:statsOf(timing.server),arrival:statsOf(timing.arrival)};status.fluidity=timing.pacer?{mode:timing.pacer.mode,extraMs:timing.pacer.extraDelayMs,dropped:timing.pacer.dropped}:null;
+   status.fps=this.bxTimes.length>1?(this.bxTimes.length-1)*1000/(this.bxTimes.at(-1)-this.bxTimes[0]):null;status.pacing=statsOf(timing.display)||BxRestoration.frameStats(this.bxTimes);status.origin={server:statsOf(timing.server),arrival:statsOf(timing.arrival),presented:timing.presentedLog.reduce((a,e)=>a+e[1],0),missed:timing.presentedLog.reduce((a,e)=>a+e[1]-1,0)};status.fluidity=timing.pacer?{mode:timing.pacer.mode,extraMs:timing.pacer.extraDelayMs,dropped:timing.pacer.dropped}:null;
    if(newFrame&&now-(this.bxCadenceMark||0)>2000){
     if(settings.mode!=='filtered')this.bxReferenceFps=status.fps;
     else if(!this.bxEngine.ext)this.bxEngine.budget.cadence(this.bxReferenceFps,status.fps);
@@ -151,8 +153,8 @@
  function mountControls(parent){
   if(controlsPanel){parent.append(controlsPanel);return;}
   if(parent.querySelector('[data-bx-restoration]'))return;
-  const panel=controlsPanel=document.createElement('div');panel.dataset.bxRestoration='v9.6';
-  const title=document.createElement('p');title.textContent='Tratamento de imagem • v9.6';panel.append(title);
+  const panel=controlsPanel=document.createElement('div');panel.dataset.bxRestoration='v9.6.1';
+  const title=document.createElement('p');title.textContent='Tratamento de imagem • v9.6.1';panel.append(title);
   function row(label,control){
    const wrapper=document.createElement('label');wrapper.className='bx-settings-row';
    const text=document.createElement('span');text.className='bx-settings-label';text.textContent=label;
@@ -225,6 +227,7 @@
    const o=status.origin||{},fmt=x=>x?`${x.meanMs.toFixed(1)} ± ${x.deviationMs.toFixed(1)}`:'—',f=status.fluidity;
    return `Ritmo na tela: ${p.meanMs.toFixed(1)} ms ± ${p.deviationMs.toFixed(1)} • p95 ${p.p95Ms.toFixed(1)} ms • ${p.hitches} travada${p.hitches===1?'':'s'} em 2 s\n`
     +`Origem: servidor ${fmt(o.server)} • chegada ${fmt(o.arrival)}\n`
+    +(o.presented?`Quadros pulados antes do tratamento: ${o.missed} de ${o.presented} em 2 s\n`:'')
     +(f?`Fluidez ${f.mode==='max'?'máxima':'equilibrada'}: +${(f.extraMs??0).toFixed(1)} ms de espera • ${f.dropped} descartado${f.dropped===1?'':'s'}\n`:'');};
   const smoothingText=()=>{
    const s=status.smoothing;if(!s)return '';
