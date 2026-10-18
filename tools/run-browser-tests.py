@@ -19,6 +19,7 @@ SUITES = [
     ('browser-harness.py', 'filter-harness.html'),
     ('regression-harness.py', 'regressions-v7.html'),
     ('quality-harness.py', 'motion-quality.html'),
+    ('capture-harness.py', 'capture-harness.html'),
 ]
 
 

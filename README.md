@@ -1,4 +1,13 @@
-# Better xCloud — tratamento experimental v9.6.1
+# Better xCloud — tratamento experimental v9.7
+
+A **v9.7** prioriza **fluidez, nitidez e tratamento**:
+- **Captura direta:** opcional, com a Fluidez ligada. Lê cada quadro decodificado da trilha WebRTC; quando os quadros chegam juntos, o vídeo exibe só um por atualização da tela e descarta os outros.
+- **Tratamento que segue a compressão (QP) do stream.**
+- **Perfis prontos.**
+- **Painel redesenhado:** navegável por controle e toque.
+- **Indicadores durante o jogo (HUD):** no celular, ficam na faixa preta lateral.
+
+Veja [notas v9.7](docs/release-v9.7.md) e a [API do painel](docs/api-imagefilter.md).
 
 A **v9.6.1** corrige a **Fluidez Máxima**, que com 2% de quadros faltando na origem escorregava a grade, acumulava espera e descartava quadros, e passa a desenhar todo quadro novo exibido pelo navegador. O painel mostra os quadros pulados antes do tratamento. Veja [notas v9.6.1](docs/release-v9.6.1.md).
 
@@ -32,16 +41,16 @@ A v7.1 corrige as pendências de degradês, halos e movimento da v7. O caminho p
 
 Para o Vostro 3400 ligado à TV por HDMI 1080p, comece em **saída Automática (resolve para nativa), Nitidez 3–5 no painel, orçamento 6 ms, Cor nas bordas 50%, Detalhe 35%, Degradês 30–50%, temporal e AA desligados**. A TV continua responsável por ampliar o sinal recebido para seu painel 4K. Forçar 4K no canvas não cria informação de uma renderização 4K do jogo, nem muda o sinal HDMI.
 
-## Android (v9.6.1)
+## Android (v9.7)
 
-Há um APK de teste em `android/dist/xcloud-imagefilter-9.6.1.apk`: um app WebView próprio que abre o xCloud com este userscript (v9.6.1). Veja [android/README.md](android/README.md).
+Há um APK de teste em `android/dist/xcloud-imagefilter-9.7.apk`: um app WebView próprio que abre o xCloud com este userscript (v9.7). Veja [android/README.md](android/README.md).
 
 ## Instalar
 
 1. Desative outras versões do Better xCloud no Tampermonkey. Não execute duas juntas.
 2. Substitua todo o conteúdo do script experimental por `better-xcloud-image-filter.user.js`, salve e recarregue o xCloud.
 3. Mantenha resolução **1080p HQ**, qualidade **Alta**, bitrate **Ilimitado** e renderizador **WebGL2**.
-4. Abra **Tratamento de imagem • v9.6.1** no menu do Better xCloud, na seção **Vídeo**, logo após **Nitidez**.
+4. Abra **Tratamento de imagem** no menu do Better xCloud, na seção **Vídeo**, logo após **Renderizador**.
 5. Compare **Referência: só nitidez** e **Novo tratamento** na mesma cena, com a mesma Nitidez. **Vídeo original** desliga o tratamento e a nitidez.
 
 Desde a v8.6, a intensidade vem do slider **Nitidez** do painel (0–10, passo 0,5); o slider nativo do Better xCloud não é usado no tratamento. O método vem de **Nitidez final** no painel; a opção **Seguir menu nativo** usa CAS/USM do Better xCloud. O modo Performance/Qualidade continua vindo do menu nativo. Há uma única etapa de nitidez após o tratamento e o upscale. **Referência: só nitidez** usa a mesma intensidade, sem os demais tratamentos; **Vídeo original** não aplica nitidez.

@@ -58,9 +58,18 @@ probe=r'''
  prefs['video.processing.mode']='quality';player.updateFrame();check(player.gl.getError()===player.gl.NO_ERROR,'Native quality mode remains valid');
  const qualityPixels=readPlayer();check(Math.abs(qualityPixels[(40*128+20)*4]-85)<=1,'Quality halo limiter preserves uniform region luminance');
  const menu=document.createElement('section');document.body.append(menu);BxImageFilter.mountControls(menu);
- check(menu.querySelector('[data-bx-restoration="v9.6.1"]')&&!document.getElementById('bx-image-filter-panel'),'Controls mount inside supplied Better xCloud menu');
- check(menu.querySelectorAll("input[type=range]").length===8,"Sharpness, neural, compression, gradient, chroma, detail, temporal and AA sliders added");check(menu.querySelector("input[aria-label=Nitidez]")?.step==="0.5","Panel sharpness slider uses half steps");
- const sharpening=menu.querySelector('[aria-label="Nitidez final"]');sharpening.value='rcas';sharpening.dispatchEvent(new Event('change'));player.updateFrame();
+ check(menu.querySelector('[data-bx-restoration="v9.7"]')&&!document.getElementById('bx-image-filter-panel'),'Controls mount inside supplied Better xCloud menu');
+ const sleep=ms=>new Promise(r=>setTimeout(r,ms)),root=menu.querySelector('.bxif-panel');
+ // Better xCloud's D-pad on a focused range: value = parseInt(value) + parseInt(step) * dir, then a non-bubbling 'input'.
+ const pad=(el,dir)=>{el.value=(parseInt(el.value)+parseInt(el.step)*dir).toString();el.dispatchEvent(new InputEvent('input'));};
+ const choose=(el,index)=>{el.value=String(index);el.dispatchEvent(new InputEvent('input'));};
+ for(const head of menu.querySelectorAll('.bxif-sec:not([data-open]) > .bxif-sec-head'))head.click();
+ menu.scrollIntoView();
+ check(!menu.querySelector('svg')&&!root.classList.contains('bx-settings-row')&&!menu.querySelector('.bx-focusable')&&!menu.querySelector('select'),'Panel uses no svg, select, bx-settings-row root or bx-focusable class');
+ check([...menu.querySelectorAll('input[data-bxif-key]')].every(i=>i.tabIndex>=0&&i.getAttribute('aria-label')&&i.type==='range'&&/^\d+$/.test(i.step)&&i.hasAttribute('aria-valuetext')),'Every setting is a focusable integer-step range with aria-label and aria-valuetext');
+ check(menu.querySelectorAll("input[data-bxif-kind=slider]").length===8,"Sharpness, neural, compression, gradient, chroma, detail, temporal and AA sliders added");
+ {const sh=menu.querySelector("input[data-bxif-key=sharpness]");check(sh?.max==="20"&&sh.step==="1"&&sh.value===String(Math.round(BxImageFilter.settings.sharpness*2)),"Panel sharpness slider maps 0-10 in half steps to an integer 0-20 range");}
+ const sharpening=menu.querySelector('input[data-bxif-key=sharpening]');choose(sharpening,2);player.updateFrame();
  check(BxImageFilter.settings.sharpening==='rcas'&&player.gl.getError()===player.gl.NO_ERROR,'RCAS selector renders through native adapter');
  const measure=[...menu.querySelectorAll('button')].find(b=>b.textContent==='Iniciar medição');await measure.onclick();
  adapterInput.currentTime+=.016;player.updateFrame();
@@ -68,35 +77,66 @@ probe=r'''
  let exported=null;const download=BxRestoration.downloadReport;BxRestoration.downloadReport=r=>exported=r;
  await [...menu.querySelectorAll('button')].find(b=>b.textContent==='Encerrar e exportar medição').onclick();BxRestoration.downloadReport=download;
  check(exported?.segments.length===1&&!exported.recording&&exported.final,'Menu exports a stopped diagnostic report');
- sharpening.value='native';sharpening.dispatchEvent(new Event('change'));
- const slider=menu.querySelector('input[aria-label=Compressão]');slider.value='71';slider.dispatchEvent(new Event('input'));check(BxImageFilter.settings.cleanup===.71,'Native menu controls persist settings');
- const menu2=document.createElement('section');document.body.append(menu2);BxImageFilter.mountControls(menu2);check(menu2.querySelector('input[aria-label=Compressão]').value==='71'&&!menu.querySelector('[data-bx-restoration]'),'Rebuilt menu retains controls and settings');
+ choose(sharpening,3);check(BxImageFilter.settings.sharpening==='native','Method choice cycles to the native processing');
+ const slider=menu.querySelector('input[data-bxif-key=cleanup]');slider.value='70';slider.dispatchEvent(new InputEvent('input'));check(BxImageFilter.settings.cleanup===.7,'Native menu controls persist settings');
+ const menu2=document.createElement('section');document.body.append(menu2);BxImageFilter.mountControls(menu2);check(menu2.querySelector('input[data-bxif-key=cleanup]').value==='70'&&!menu.querySelector('[data-bx-restoration]')&&menu2.querySelector('.bxif-panel')===root,'Rebuilt menu retains controls and settings');
+ menu2.scrollIntoView();
+ // Gamepad: integer steps change Nitidez by 0.5 and switch the panel to the focus-ring style.
+ {const sh=menu2.querySelector('input[data-bxif-key=sharpness]');sh.focus();const before=BxImageFilter.settings.sharpness;pad(sh,1);
+  check(BxImageFilter.settings.sharpness===before+.5&&root.dataset.nav==='1'&&sh.getAttribute('aria-valuetext')===(before+.5).toFixed(1).replace('.',','),'Gamepad Right on Nitidez adds 0.5 (integer range step)');
+  pad(sh,-1);check(BxImageFilter.settings.sharpness===before,'Gamepad Left on Nitidez subtracts 0.5');
+  // Better xCloud keeps firing 'input' at the clamp end; update() (which resets the GPU adaptation) runs once.
+  const orig=BxImageFilter.update;let calls=0;BxImageFilter.update=patch=>{calls++;return orig(patch);};
+  sh.value='20';sh.dispatchEvent(new InputEvent('input'));pad(sh,1);
+  const sp=menu2.querySelector('input[data-bxif-key=spatialMode]');choose(sp,1);pad(sp,1);await sleep(320);BxImageFilter.update=orig;
+  check(calls===2&&BxImageFilter.settings.sharpness===10&&BxImageFilter.settings.spatialMode==='legacy'&&sp.value==='1','Repeated input at the max index calls update() once (slider and heavy choice)');
+  choose(sp,0);sh.value=String(before*2);sh.dispatchEvent(new InputEvent('input'));sh.blur();await sleep(320);
+  check(BxImageFilter.settings.spatialMode==='selective'&&BxImageFilter.settings.sharpness===before,'Choices and sliders restore their values');}
+ // A on a choice cycles it (an untrusted click from Better xCloud); a tap on a segment selects it.
+ {const mode=menu2.querySelector('input[data-bxif-key=mode]');mode.dispatchEvent(new MouseEvent('click',{bubbles:true}));
+  check(BxImageFilter.settings.mode==='original'&&mode.value==='0','A cycles a choice to its next option');
+  mode.closest('.bxif-seg').querySelector('.bxif-seg-opt[data-i="2"]').click();check(BxImageFilter.settings.mode==='filtered','Tapping a segment selects it');}
+ // Presets apply their values and highlight the active chip.
+ {const chip=k=>menu2.querySelector(`[data-preset=${k}]`);chip('console').click();
+  check(BxImageFilter.preset()==='console'&&BxImageFilter.settings.sharpness===2&&chip('console').getAttribute('aria-pressed')==='true'&&chip('natural').getAttribute('aria-pressed')==='false'&&menu2.querySelector('input[data-bxif-key=sharpness]').value==='4','Preset chip applies its values and is highlighted');
+  menu2.querySelector('input[data-bxif-key=detail]').value='50';menu2.querySelector('input[data-bxif-key=detail]').dispatchEvent(new InputEvent('input'));
+  check(BxImageFilter.preset()==='custom'&&![...menu2.querySelectorAll('.bxif-chip')].some(b=>b.getAttribute('aria-pressed')==='true'),'Changing a value leaves the presets (Personalizado)');
+  chip('natural').click();check(BxImageFilter.preset()==='natural'&&chip('natural').getAttribute('aria-pressed')==='true','Natural preset restores the measured defaults');}
+ // Captura de quadros only with Fluidez on.
+ {const capture=menu2.querySelector('input[data-bxif-key=capture]'),fluidity=menu2.querySelector('input[data-bxif-key=fluidity]');
+  check(BxImageFilter.settings.fluidity==='off'&&capture.disabled,'Captura is disabled while Fluidez is off');
+  choose(fluidity,1);check(BxImageFilter.settings.fluidity==='balanced'&&capture.disabled===!BxImageFilter.directSupported(),'Captura follows Fluidez');
+  choose(fluidity,0);await sleep(320);check(BxImageFilter.settings.fluidity==='off'&&capture.disabled,'Fluidez off disables Captura again');}
+ // No horizontal scroll at Better xCloud's 430 px content width.
+ {menu2.style.width='430px';await sleep(50);check(root.scrollWidth<=root.clientWidth&&root.getBoundingClientRect().width<=430,'Panel fits 430 px without horizontal scroll ('+root.scrollWidth+')');menu2.style.width='';}
  // Live decoder line from a simulated WebRTC connection (two snapshots 2 s apart: 60 frames, 0.6 s decode).
  {let n=0;window.STATES={currentStream:{peerConnection:{getStats:async()=>{n++;return new Map([['v',{type:'inbound-rtp',kind:'video',framesDecoded:100+60*n,totalDecodeTime:.6*n,jitterBufferDelay:.9*n,jitterBufferEmittedCount:60*n,framesPerSecond:30,codecId:'c',powerEfficientDecoder:true,decoderImplementation:'MediaCodec'}],['c',{mimeType:'video/H264',sdpFmtpLine:'profile-level-id=640c1f'}],['p',{type:'candidate-pair',nominated:true,state:'succeeded',currentRoundTripTime:.042}]]);}}}};
-  const re=/Codec H264 High • 30 FPS recebidos • Decodificação: hardware \(MediaCodec\)\nLatência: rede \(RTT\) 42\.0 ms • buffer 15\.0 ms • decodificação \(DT\) 10\.0 ms/,status=()=>menu2.querySelector('[role=status]').textContent;
-  for(let t=0;t<16&&!re.test(status());t++)await new Promise(r=>setTimeout(r,500));
-  check(re.test(status()),'Panel shows codec profile, FPS, decoder and latency breakdown from WebRTC stats');
+  const out=name=>menu2.querySelector(`[data-bxif-out=${name}]`).textContent;
+  const live=()=>/Decodificação hardware \(MediaCodec\)/.test(out('decoder'))&&/Vídeo recebido .* · 30 FPS · H264 High/.test(out('stream'))&&/Rede \(RTT\) 42 ms/.test(out('latency'))&&/Buffer 15 ms/.test(out('latency'))&&/Decodificação 10 ms/.test(out('latency'));
+  for(let t=0;t<16&&!live();t++)await new Promise(r=>setTimeout(r,500));
+  check(live(),'Panel shows codec profile, FPS, decoder and latency breakdown from WebRTC stats');
+  check(/H264 High · HW/.test(out('meta')),'Live card shows codec and hardware decoding');
   // Smoothing reaches the video receiver of the live connection while playing.
   const receiver={track:{kind:'video'},jitterBufferTarget:null};window.STATES.currentStream.peerConnection.getReceivers=()=>[receiver];
-  const smoothing=menu2.querySelector('[aria-label="Suavidade (buffer de vídeo)"]'),budgetBefore=player.bxEngine.budget;
-  smoothing.value='33';smoothing.dispatchEvent(new Event('change'));
+  const smoothing=menu2.querySelector('input[data-bxif-key=smoothing]'),budgetBefore=player.bxEngine.budget;
+  choose(smoothing,2);
   check(receiver.jitterBufferTarget===33&&player.bxEngine.budget===budgetBefore,'Smoothing applies immediately without rendering or resetting the GPU budget');
   await new Promise(r=>setTimeout(r,1100));
-  check(/alvo solicitado 33 ms/.test(status()),'Panel distinguishes the requested buffering target from measured delay');
+  check(/alvo 33 ms/.test(out('smoothing')),'Panel distinguishes the requested buffering target from measured delay');
   window.STATES.currentStream.peerConnection.getReceivers=()=>[{track:{kind:'video'}}];
-  await new Promise(r=>setTimeout(r,2100));check(/não suportado pelo navegador/.test(status()),'Panel reports unsupported smoothing');
+  await new Promise(r=>setTimeout(r,2100));check(/\(não suportado\)/.test(out('smoothing')),'Panel reports unsupported smoothing');
   window.STATES.currentStream.peerConnection.getReceivers=()=>[receiver];
   BxImageFilter.settings.smoothing=0;await new Promise(r=>setTimeout(r,1100));adapterInput.currentTime+=.04;player.updateFrame();check(receiver.jitterBufferTarget===null,'Smoothing off restores the default buffer');
   // Frame pacing line from the frames the adapter rendered.
   for(let k=0;k<6;k++){adapterInput.currentTime+=.033;player.updateFrame();await new Promise(r=>setTimeout(r,34));}
-  await new Promise(r=>setTimeout(r,1100));check(/Ritmo na tela: [0-9.]+ ms ± [0-9.]+ • p95 [0-9.]+ ms • \d+ travadas? em 2 s\nOrigem: servidor [^•]+ • chegada /.test(status()),'Panel shows frame pacing and its origin');
+  await new Promise(r=>setTimeout(r,1100));check(/Travadas \d+ · Pulados/.test(out('pacing'))&&/SERVIDOR(—|±[0-9,]+).*CHEGADA(—|±[0-9,]+).*TELA±[0-9,]+p95 [0-9,]+/.test(out('pipeline'))&&/^±[0-9,]+ms$/.test(out('kpi-pacing').replace(/^Ritmo/i,'').replace(/p95.*$/,'')),'Panel shows frame pacing and its origin');
   // Fluidez: frames go to persistent textures and reach the canvas on the pacer's clock.
   BxImageFilter.settings.fluidity='balanced';
   for(let k=0;k<8;k++){adapterInput.getContext('2d').fillStyle=k%2?'#222':'#ddd';adapterInput.getContext('2d').fillRect(0,0,128,96);adapterInput.currentTime+=.033;player.updateFrame();await new Promise(r=>setTimeout(r,34));}
   await new Promise(r=>setTimeout(r,1100));
   const pacedTargets=Object.keys(player.bxEngine.targets).filter(n=>n.startsWith('paced'));
   check(pacedTargets.length>=2&&player.bxTiming.pacer&&player.bxTiming.display.length>=4,'Fluidez renders into persistent textures and presents on its clock '+pacedTargets.join(','));
-  check(/Fluidez equilibrada: \+[0-9.]+ ms de espera/.test(status()),'Panel shows the pacer delay');
+  check(/Espera da Fluidez \+[0-9,]+ ms · descartados/.test(out('fluidity')),'Panel shows the pacer delay');
   // The canvas buffer is cleared after compositing; check the texture that was presented instead.
   {const g=player.gl,t=player.bxEngine.targets[player.bxTiming.shown],px=new Uint8Array(4);g.bindFramebuffer(g.FRAMEBUFFER,t.fbo);g.readPixels(10,10,1,1,g.RGBA,g.UNSIGNED_BYTE,px);g.bindFramebuffer(g.FRAMEBUFFER,null);
    check(t&&t.w===player.$canvas.width&&px[0]>10,'Presented frame holds the processed image at canvas size');}
@@ -104,8 +144,8 @@ probe=r'''
   check(!player.bxTiming.pacer&&!Object.keys(player.bxEngine.targets).some(n=>n.startsWith('paced')),'Turning Fluidez off releases its textures and loop');
   const copyButton=[...menu2.querySelectorAll('button')].find(b=>b.textContent==='Copiar configuração');copyButton.click();await new Promise(r=>setTimeout(r,200));
   const exported=JSON.parse(menu2.querySelector('textarea').value);
-  check(exported.treatment&&'smoothing' in exported.treatment&&'stream.video.resolution' in exported.betterXcloud&&exported.build==='6.7.12-imagefilter.9.6.1','Copy configuration exports treatment and Better xCloud settings');
-  check(!menu2.querySelector('select[aria-label="Codec (teste)"]')&&!menu2.querySelector('select[aria-label="Taxa da tela (app)"]'),'No codec test; refresh-rate control only inside the Android app');
+  check(exported.treatment&&'smoothing' in exported.treatment&&'stream.video.resolution' in exported.betterXcloud&&exported.build==='6.7.12-imagefilter.9.7','Copy configuration exports treatment and Better xCloud settings');
+  check(!menu2.querySelector('[aria-label="Codec (teste)"]')&&!menu2.querySelector('[data-bxif-key=refreshRate]'),'No codec test; refresh-rate control only inside the Android app');
   delete window.STATES;}
  // Exercise the browser's actual receiver setter, without media permissions or a remote service.
  {const pc=new RTCPeerConnection();const receiver=pc.addTransceiver('video').receiver;
@@ -115,9 +155,54 @@ probe=r'''
   pc.close();}
  // Android app bridge: the refresh-rate selector appears once the bridge exists and calls the app.
  {let set=null;window.BxAndroid={getRefreshRates:()=>'[60,90,120]',getRefreshRate:()=>0,setRefreshRate:v=>{set=v;}};
-  let sel=null;for(let t=0;t<10&&!(sel=menu2.querySelector('select[aria-label="Taxa da tela (app)"]'));t++)await new Promise(r=>setTimeout(r,300));
-  check(sel&&[...sel.options].map(o=>o.value).join()==='0,60,90,120','Android app shows fixed refresh-rate options');
-  sel.value='120';sel.dispatchEvent(new Event('change'));check(set===120,'Selecting a refresh rate calls the app bridge');delete window.BxAndroid;}
+  let sel=null;for(let t=0;t<10&&!(sel=menu2.querySelector('input[data-bxif-key=refreshRate]'));t++)await new Promise(r=>setTimeout(r,300));
+  check(sel&&sel.dataset.bxifValues==='0,60,90,120'&&sel.closest('[data-bxif-row=refreshRate]').previousElementSibling?.dataset.bxifRow==='smoothing','Android app shows fixed refresh-rate options after Suavidade');
+  choose(sel,3);check(set===120,'Selecting a refresh rate calls the app bridge');delete window.BxAndroid;}
+ // In-game HUD: only while enabled and frames are treated; inert, cheap, and gone when off.
+ {check(!document.querySelector('.bxif-hud')&&BxImageFilter.hud.timers()===0,'HUD off: no element and no timers');
+  adapterInput.currentTime+=.033;player.updateFrame();
+  choose(menu2.querySelector('input[data-bxif-key=hud]'),1);
+  const hud=document.querySelector('.bxif-hud'),cs=hud&&getComputedStyle(hud);
+  check(BxImageFilter.settings.hud==='compact'&&hud&&hud.hasAttribute('data-show')&&cs.display!=='none'&&hud.parentElement===document.documentElement,'HUD shows while frames are treated');
+  check(cs.pointerEvents==='none'&&hud.inert&&hud.getAttribute('aria-hidden')==='true'&&!hud.querySelectorAll('[tabindex],button,input,a,select,textarea').length&&cs.position==='fixed'&&+cs.zIndex>1000&&+cs.zIndex<2000,'HUD is inert, unfocusable and between the game bar and Better xCloud dialogs');
+  check(!menu2.querySelector('[data-bxif-row=hudPosition]').hasAttribute('data-hide'),'Canto appears when the HUD is on');
+  let batches=0;const mo=new MutationObserver(()=>batches++);mo.observe(hud,{subtree:true,childList:true,characterData:true});
+  for(let i=0;i<6;i++){adapterInput.currentTime+=.033;player.updateFrame();await sleep(500);}
+  mo.disconnect();
+  check(batches>0&&batches<=12,'HUD writes at most 4 batches per second ('+batches+' in 3 s)');
+  check(/\d/.test(hud.textContent)&&hud.querySelector('canvas').width>0,'HUD shows live values and a sparkline');
+  choose(menu2.querySelector('input[data-bxif-key=hud]'),2);
+  check(hud.dataset.layout==='full'&&hud.dataset.mode==='full'&&/RITMO|Ritmo/.test(hud.textContent),'HUD full layout');
+  choose(menu2.querySelector('input[data-bxif-key=hudPosition]'),3);check(hud.dataset.pos==='bottom-right','HUD follows the chosen corner');
+  BxImageFilter.status.lastFrame=Date.now()-5000;await sleep(1400);
+  check(!hud.hasAttribute('data-show')&&getComputedStyle(hud).display==='none','HUD hides when the stream stops');
+  choose(menu2.querySelector('input[data-bxif-key=hudPosition]'),0);choose(menu2.querySelector('input[data-bxif-key=hud]'),0);
+  check(!document.querySelector('.bxif-hud')&&BxImageFilter.hud.timers()===0&&BxImageFilter.settings.hud==='off','HUD off removes it and its timers');}
+ // The panel runs only while visible and leaves nothing behind once Better xCloud removes it.
+ {menu2.scrollIntoView();await sleep(600);check(BxImageFilter.panelOpen===true&&BxImageFilter.panel.timers()===1,'Visible panel refreshes on one timer and enables telemetry');
+  // A dialog hidden with display:none stops the refresh; showing it again resumes.
+  menu2.style.display='none';await sleep(700);check(BxImageFilter.panel.timers()===0&&BxImageFilter.panelOpen===false,'Hidden dialog stops the panel refresh');
+  menu2.style.display='';menu2.scrollIntoView();await sleep(700);check(BxImageFilter.panel.timers()===1,'Shown again, the panel refreshes');
+  // Warning actions: 'Usar Auto' updates the setting and its control at once (no stale value).
+  BxImageFilter.update({output:'1440'});await sleep(1700);
+  const useAuto=[...menu2.querySelectorAll('.bxif-warns button')].find(b=>b.textContent==='Usar Auto');
+  check(useAuto,'Actionable output warning is visible (actionable warnings are never hidden behind +N)');
+  useAuto.click();
+  check(BxImageFilter.settings.output==='auto'&&menu2.querySelector('input[data-bxif-key=output]').getAttribute('aria-valuetext')==='Auto','Usar Auto changes the setting and its control at once');
+  // 'Ir para Renderizador' reaches Better xCloud's controller-friendly select (hidden <select>, '>' button in nearby.focus).
+  {const row=document.createElement('div');row.prefKey='video.player.type';const wrap=document.createElement('div');wrap.className='bx-select';
+   const sel=document.createElement('select');sel.style.cssText='position:absolute;top:-9999px;left:-9999px;visibility:hidden';const next=document.createElement('button');next.textContent='>';
+   wrap.append(sel,next);wrap.nearby={focus:next};row.append(wrap);menu2.prepend(row);
+   await sleep(600);const go=[...menu2.querySelectorAll('.bxif-warns button')].find(b=>b.textContent==='Ir para Renderizador');
+   check(go,'Renderer warning offers its action');go.click();check(document.activeElement===next,'Ir para Renderizador focuses the controller-friendly selector');row.remove();}
+  // Documented null fields never print undefined/NaN.
+  {const net=BxImageFilter.status.net;BxImageFilter.status.net={codec:null,profile:null,fpsReceived:null,decoder:'unknown',implementation:null,decodeMs:null,bufferMs:null,rttMs:null,bitrateMbps:null,lossPct:null,qp:null,framesDropped:null,freezes:null,width:null,height:null};
+   const fl=BxImageFilter.status.fluidity;BxImageFilter.status.fluidity={mode:'balanced',extraMs:null,dropped:0};BxImageFilter.status.adaptive=null;
+   for(const s of menu2.querySelectorAll('.bxif-sec:not([data-open])>.bxif-sec-head'))s.click();
+   await sleep(1200);const text=menu2.querySelector('.bxif-panel').textContent;
+   check(!/undefined|NaN/.test(text)&&!/ · \? /.test(text),'Null telemetry fields render as dashes, never undefined/NaN/?');
+   BxImageFilter.status.net=net;BxImageFilter.status.fluidity=fl;}
+  menu2.remove();await sleep(700);check(BxImageFilter.panel.timers()===0&&BxImageFilter.panelOpen===false,'Removed panel leaves no timers and closes telemetry');}
  // A GPU failure while Fluidez is on must also end its display loop, not only the engine.
  BxImageFilter.settings.fluidity='balanced';adapterInput.currentTime+=.033;player.updateFrame();
  player.bxEngine.render=()=>{throw new Error('simulated GPU failure');};adapterInput.currentTime+=.033;player.updateFrame();
@@ -192,4 +277,4 @@ probe=r'''
 original=Path('script.js').read_text();a=original.index('class WebGL2Player');b=original.index('class VideoPlayer',a)
 base="\nconst prefs={'video.processing.sharpness':2,'video.processing':'cas','video.processing.mode':'performance'};function getStreamPref(key){return prefs[key]??'default';}\nclass BaseCanvasPlayer {\n constructor(type,video){this.$video=video;this.$canvas=document.createElement('canvas');this.$canvas.width=128;this.$canvas.height=96;document.body.append(this.$canvas);this.options={processing:'cas',processingMode:'performance',sharpness:2,brightness:100,contrast:100,saturation:100};}\n toFilterId(){return 2;}destroy(){}\n}\n"
 Path('output/playwright').mkdir(parents=True,exist_ok=True)
-Path('output/playwright/filter-harness.html').write_text('<!doctype html><meta charset="utf-8"><pre id="result">Running</pre><script src="../restoration.bundle.js"></script><script>'+base+original[a:b]+Path('src/image-filter.js').read_text()+probe+'</script>')
+Path('output/playwright/filter-harness.html').write_text('<!doctype html><meta charset="utf-8"><pre id="result">Running</pre><script src="../restoration.bundle.js"></script><script>'+base+original[a:b]+''.join(Path('src/'+n).read_text() for n in ('image-filter.js','panel.js','hud.js'))+probe+'</script>')

@@ -36,7 +36,7 @@ test('FPS cap resets after a pause and target changes without catch-up bursts',(
 function adapter(){
  const timers=new Map(),events=new Map();let id=0;
  class WebGL2Player {updateFrame(){}destroy(){}async setupShaders(){}}
- const context={WebGL2Player,window:{setInterval(fn){timers.set(++id,fn);return id;},clearInterval(id){timers.delete(id);},addEventListener(name,fn){events.set(name,fn);}},
+ const context={WebGL2Player,window:{setInterval(fn){timers.set(++id,fn);return id;},clearInterval(id){timers.delete(id);},setTimeout(){return 0;},clearTimeout(){},addEventListener(name,fn){events.set(name,fn);}},
   document:{},localStorage:{getItem:()=>null,setItem(){}},console,STATES:{currentStream:{}}};
  vm.createContext(context);
  vm.runInContext(fs.readFileSync('src/restoration-engine.js','utf8'),context);
@@ -65,4 +65,20 @@ test('smoothing reports missing support and receiver errors without abandoning o
  const working={track:{kind:'video'},jitterBufferTarget:null};
  a.context.STATES.currentStream.peerConnection={getReceivers:()=>[broken,working]};a.tick();
  assert.equal(working.jitterBufferTarget,33);assert.equal(a.api.status.smoothing.failed,1);
+});
+test('compression-adaptive treatment follows a sustained QP change with hysteresis',async()=>{
+ const a=adapter();let qpSum=0,frames=0,bytes=0,t=0,qp=28;
+ const rtp=()=>({id:'v',type:'inbound-rtp',kind:'video',timestamp:t,qpSum,framesDecoded:frames,bytesReceived:bytes,packetsLost:0,packetsReceived:frames*10});
+ a.context.STATES.currentStream.peerConnection={getReceivers:()=>[],getStats:async()=>{t+=1000;frames+=30;qpSum+=qp*30;bytes+=2e6;const r=rtp();return new Map([['v',r]]);}};
+ const step=async n=>{for(let i=0;i<n;i++){a.tick();await new Promise(r=>setImmediate(r));}};
+ await step(3);assert.equal(a.api.status.adaptive.level,.5);assert.equal(a.api.status.net.bitrateMbps,16);
+ qp=29;await step(5);assert.equal(a.api.status.adaptive.level,.5,'small QP changes do not move the treatment');
+ qp=38;await step(8);assert.equal(a.api.status.adaptive.level,1);assert.ok(a.api.status.adaptive.scales.cleanup>1.3);
+ a.api.update({adaptive:false,hud:'off'});const calls=t;await step(2);assert.equal(t,calls,'no getStats while nothing needs telemetry');
+});
+test('a new session restarts telemetry and the compression level',async()=>{
+ const a=adapter(),session=qp=>{let t=0,frames=0,sum=0;return {getReceivers:()=>[],getStats:async()=>{t+=1000;frames+=30;sum+=qp*30;return new Map([['v',{id:'v',type:'inbound-rtp',kind:'video',timestamp:t,qpSum:sum,framesDecoded:frames}]]);}};};
+ const step=async n=>{for(let i=0;i<n;i++){a.tick();await new Promise(r=>setImmediate(r));}};
+ a.context.STATES.currentStream.peerConnection=session(40);await step(4);assert.equal(a.api.status.adaptive.level,1);
+ a.context.STATES.currentStream.peerConnection=session(22);await step(2);assert.ok(a.api.status.adaptive.level<=.1,'level '+a.api.status.adaptive.level);
 });

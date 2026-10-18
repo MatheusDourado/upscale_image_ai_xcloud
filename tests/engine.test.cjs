@@ -180,3 +180,38 @@ test('max pacer locks to 30 FPS despite missing frames and its delay shrinks aft
  // Calm stream: frames keep whole 30 FPS periods (a missing frame is held for two), none shown early.
  const late=shown.filter(([t])=>t>20000).map(e=>e[0]);for(let k=1;k<late.length;k++)assert.ok(late[k]-late[k-1]>30,'interval '+(late[k]-late[k-1]));
 });
+test('stream summary reports bitrate, loss and mean QP between two snapshots',()=>{
+ const a=api(),prev={timestamp:1000,bytesReceived:0,packetsLost:5,packetsReceived:1000,qpSum:0,framesDecoded:0,framesDropped:1,freezeCount:0};
+ const s=a.streamSummary(prev,{timestamp:3000,bytesReceived:4e6,packetsLost:7,packetsReceived:1198,qpSum:1740,framesDecoded:60,framesDropped:3,freezeCount:1,frameWidth:1920,frameHeight:1080});
+ assert.equal(s.bitrateMbps,16);assert.equal(s.lossPct,1);assert.equal(s.qp,29);assert.equal(s.framesDropped,2);assert.equal(s.freezes,1);assert.equal(s.height,1080);
+ const first=a.streamSummary(null,{timestamp:1,bytesReceived:9});assert.equal(first.bitrateMbps,null);assert.equal(first.qp,null);assert.equal(a.streamSummary(prev,null),null);
+});
+test('compression level is neutral at QP 28 and bounded, presets are recognised',()=>{
+ const a=api();assert.equal(a.compressionLevel(28),.5);assert.equal(a.compressionLevel(10),0);assert.equal(a.compressionLevel(51),1);assert.equal(a.compressionLevel(NaN),null);
+ assert.deepEqual({...a.compressionScales(.5)},{cleanup:1,deband:1,detail:1});
+ const clean=a.compressionScales(0),heavy=a.compressionScales(1);assert.ok(clean.cleanup<1&&clean.detail>1&&heavy.cleanup>1&&heavy.detail<1);
+ assert.equal(a.presetOf(a.normalize({})),'natural');
+ for(const [key,p] of Object.entries(a.presets)){const s={...a.normalize({}),...p.values};assert.equal(a.presetOf(s),key);assert.deepEqual({...a.normalize(s)},s,key+' values are valid settings');}
+ assert.equal(a.presetOf({...a.normalize({}),sharpness:3.5}),'custom');
+ assert.equal(a.normalize({capture:'direct'}).capture,'direct');assert.equal(a.normalize({capture:'x'}).capture,'video');assert.equal(a.normalize({hud:'full',hudPosition:'bottom-right'}).hudPosition,'bottom-right');assert.equal(a.normalize({adaptive:false}).adaptive,false);
+});
+test('pacer restarts its clock when the frame source changes, so pacing keeps working',()=>{
+ // Video path: RTP clock from 0. Direct capture: VideoFrame times since boot (~2.7e6 ms).
+ for(const mode of ['balanced','max']){
+  const a=api(),p=a.createPacer(mode),leads=[];let t=0,n=0;
+  const feed=(count,clock,epoch)=>{for(let i=0;i<count;i++,n++){const capture=n*1000/30,arrival=capture+40+(n%3)*6;
+   while(t<arrival){t+=1000/120;const f=p.tick(t);if(f&&f.clock==='frame')leads.push(f.p-f.arrival);}
+   p.add({slot:'s',arrival,rtp:capture+epoch,clock});}};
+  feed(120,undefined,0);feed(120,'frame',2.7e6);
+  const clamped=leads.filter(v=>Math.abs(v-3)<1e-9).length;
+  // The latest frames of the window are scheduled at arrival + 3 ms by design; with mixed clocks all were.
+  assert.ok(leads.length>100&&clamped<leads.length/2&&Math.max(...leads)>10,`${mode}: ${clamped} of ${leads.length} frames clamped to arrival + 3 ms`);
+ }
+ const p=api().createPacer('balanced');p.add({slot:'a',arrival:0,rtp:0});p.tick(100);p.add({slot:'b',arrival:5000,rtp:4000});assert.ok(p.tick(6000),'a jump of seconds restarts instead of scheduling far away');
+});
+test('diagnostics continue a segment when a configuration returns and explain the limit',()=>{
+ const d=api().createDiagnostics();d.start();
+ for(let i=0;i<10;i++){d.frame({level:i%2},i*100);d.frame({level:i%2},i*100+50);}
+ const r=d.report();assert.equal(r.segments.length,2);assert.equal(r.segments[0].frames,10);assert.equal(r.segments[0].durationMs,250);assert.equal(r.segments[0].drawFps,20);
+ const e=api().createDiagnostics();e.start();for(let i=0;i<300;i++)e.frame({i},i);assert.equal(e.active,false);assert.match(e.report().stopReason,/limite/);
+});

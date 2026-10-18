@@ -2,7 +2,7 @@
 (() => {
   // v9 defaults come from tools/eval (docs/analysis-v9.md): same sharpness as the clean
   // render with the highest fidelity on xCloud-like H.264 streams.
-  const defaults = Object.freeze({mode:'filtered',fluidity:'off',smoothing:0,neural:0,cleanup:.5,deband:.3,chroma:.75,detail:.2,temporal:0,upscale:true,output:'auto',antialias:0,gpuBudget:6,sharpness:3,processing:'cas',sharpening:'usm',spatialMode:'selective',lumaSharpen:true,noiseFloor:4,processingMode:'performance',contrast:1,saturation:1,shadows:0});
+  const defaults = Object.freeze({mode:'filtered',fluidity:'off',capture:'video',adaptive:true,hud:'off',hudPosition:'top-left',smoothing:0,neural:0,cleanup:.5,deband:.3,chroma:.75,detail:.2,temporal:0,upscale:true,output:'auto',antialias:0,gpuBudget:6,sharpness:3,processing:'cas',sharpening:'usm',spatialMode:'selective',lumaSharpen:true,noiseFloor:4,processingMode:'performance',contrast:1,saturation:1,shadows:0});
   function normalize(value={}) {
     if(!value || typeof value!=='object')value={};
     const result={...defaults};
@@ -12,11 +12,15 @@
     if(['usm','cas','rcas','native'].includes(value.sharpening))result.sharpening=value.sharpening;
     if([0,17,33,50].includes(value.smoothing))result.smoothing=value.smoothing;
     if(['off','balanced','max'].includes(value.fluidity))result.fluidity=value.fluidity;
+    if(['video','direct'].includes(value.capture))result.capture=value.capture;
+    if(['off','compact','full'].includes(value.hud))result.hud=value.hud;
+    if(['top-left','top-right','bottom-left','bottom-right'].includes(value.hudPosition))result.hudPosition=value.hudPosition;
     if(['selective','legacy'].includes(value.spatialMode))result.spatialMode=value.spatialMode;
     if(['cas','usm'].includes(value.processing))result.processing=value.processing;
     if(['performance','quality'].includes(value.processingMode))result.processingMode=value.processingMode;
     if(typeof value.upscale==='boolean')result.upscale=value.upscale;
     if(typeof value.lumaSharpen==='boolean')result.lumaSharpen=value.lumaSharpen;
+    if(typeof value.adaptive==='boolean')result.adaptive=value.adaptive;
     for(const [key,min,max] of [['neural',0,1],['antialias',0,1],['sharpness',0,10],['cleanup',0,1],['deband',0,1],['chroma',0,1],['detail',0,1],['temporal',0,1],['contrast',.8,1.2],['noiseFloor',0,8],['saturation',0,1.3],['shadows',0,1]])
       if(typeof value[key]==='number'&&Number.isFinite(value[key]))result[key]=Math.min(max,Math.max(min,value[key]));
     return result;
@@ -69,22 +73,28 @@
     if(this.over>=30){this.degrade();this.over=0;}
   }};}
   function createDiagnostics(){
-    let recording=false,segments=[],current=null,count=0,disjoints=0,started=null,ended=null,stopReason=null,metadata={};
+    // One segment per distinct configuration: returning to an earlier one (e.g. the adaptive QP level)
+    // continues its segment, with time counted only while it is current.
+    let recording=false,segments=[],byKey=new Map(),current=null,count=0,disjoints=0,started=null,ended=null,stopReason=null,metadata={};
     const percentile=(a,p)=>a.length?a[Math.ceil(a.length*p)-1]:null;
     return {
       get active(){return recording;},
-      start(meta={}){recording=true;segments=[];current=null;count=0;disjoints=0;started=Date.now();ended=null;stopReason=null;metadata=meta;},
+      start(meta={}){recording=true;segments=[];byKey=new Map();current=null;count=0;disjoints=0;started=Date.now();ended=null;stopReason=null;metadata=meta;},
       stop(reason=null){if(!recording)return;recording=false;ended=Date.now();stopReason=reason;},
       frame(config,time){if(!recording)return null;const key=JSON.stringify(config);
-        if(current?.key!==key){if(segments.length>=256){this.stop();return null;}current={key,config,frames:0,first:time,last:time,gpu:[]};segments.push(current);}
+        if(current?.key!==key){if(current)current.activeMs+=current.last-current.since;
+          let segment=byKey.get(key);
+          if(!segment){if(segments.length>=256){this.stop('limite de 256 configurações');return null;}segment={key,config,frames:0,visits:0,activeMs:0,since:time,last:time,gpu:[]};segments.push(segment);byKey.set(key,segment);}
+          segment.visits++;segment.since=segment.last=time;current=segment;}
         current.frames++;current.last=time;return current;
       },
       sample(segment,ms){if(!segment||!segments.includes(segment)||!Number.isFinite(ms)||ms<0)return;
         if(count>=120000)return;segment.gpu.push(ms);count++;
       },
       disjoint(){if(recording)disjoints++;},
-      report(){return {schema:1,version:'9.6.1',build:globalThis.BxBuild??null,started,ended,stopReason,recording,metadata,disjoints,sampleLimit:120000,truncated:count>=120000||segments.length>=256,
-        segments:segments.map(({config,frames,first,last,gpu})=>{const sorted=[...gpu].sort((a,b)=>a-b);return {config,frames,durationMs:last-first,drawFps:last>first?(frames-1)*1000/(last-first):null,gpu:{count:gpu.length,p50:percentile(sorted,.5),p95:percentile(sorted,.95),p99:percentile(sorted,.99),samplesMs:[...gpu]}};})};}
+      report(){return {schema:1,version:'9.7',build:globalThis.BxBuild??null,started,ended,stopReason,recording,metadata,disjoints,sampleLimit:120000,truncated:count>=120000||segments.length>=256,
+        segments:segments.map(segment=>{const {config,frames,visits,gpu}=segment,durationMs=segment.activeMs+(segment===current?segment.last-segment.since:0);
+          const sorted=[...gpu].sort((a,b)=>a-b);return {config,frames,durationMs,drawFps:durationMs>0?(frames-visits)*1000/durationMs:null,gpu:{count:gpu.length,p50:percentile(sorted,.5),p95:percentile(sorted,.95),p99:percentile(sorted,.99),samplesMs:[...gpu]}};})};}
     };
   }
   async function captureVideoStats(video,peer){
@@ -161,12 +171,14 @@
     function updateCadence(d){if(d>2&&d<200){deltas.push(d);if(deltas.length>30)deltas.shift();}
       if(deltas.length>=5){const m=[...deltas].sort((a,b)=>a-b)[deltas.length>>1];cadence=Math.abs(m-1000/30)<2?1000/30:Math.abs(m-1000/60)<1?1000/60:m;}}
     function schedule(f){
-      const kind=f.rtp!=null?'rtp':'arrival',ref=f.rtp??f.arrival;
-      // RTP and arrival times are different clocks: switching restarts the clock-relative state.
-      if(kind!==clock){clock=kind;lastRef=grid=offset=null;transits.length=0;}
+      // Clocks: 'rtp' (rVFC RTP times, from 0), 'frame' (VideoFrame times, monotonic since boot) or
+      // 'arrival'. A change of clock, or a jump of more than a second (stall, RTP restart), restarts the
+      // clock-relative state; lastP keeps the display order.
+      const kind=f.rtp==null?'arrival':f.clock||'rtp',ref=f.rtp??f.arrival;
+      if(kind!==clock||lastRef!==null&&(ref<lastRef||ref-lastRef>1000)){clock=kind;lastRef=grid=offset=null;transits.length=0;}
       const interval=lastRef===null?null:ref-lastRef;if(interval!==null)updateCadence(interval);lastRef=ref;
       let base=null,p;
-      if(mode==='balanced'&&kind==='rtp')base=ref;
+      if(mode==='balanced'&&kind!=='arrival')base=ref;
       else if(cadence){
         // Whole periods since the last slot: a missing source frame holds the previous one for exactly
         // two. Following the clock by 5% per frame absorbs drift and filters jitter.
@@ -206,7 +218,36 @@
       reset(){queue.length=0;deltas.length=0;transits.length=0;lastP=lastRef=clock=grid=offset=cadence=extra=null;dropped=0;}
     };
   }
-  function downloadReport(report){const url=URL.createObjectURL(new Blob([JSON.stringify(report,null,2)],{type:'application/json'})),a=document.createElement('a');a.href=url;a.download='bx-v9.6.1-diagnostics-'+Date.now()+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
+  // Stream quality between two inbound-rtp video snapshots (getStats, ms timestamps): received bitrate,
+  // packet loss and the mean H.264 QP per decoded frame (lower = less compression, 0-51).
+  function streamSummary(previous,current){
+    if(!current)return null;
+    const seconds=previous?(current.timestamp-previous.timestamp)/1000:0,delta=k=>previous&&Number.isFinite(current[k])&&Number.isFinite(previous[k])?current[k]-previous[k]:null;
+    const bytes=delta('bytesReceived'),lost=delta('packetsLost'),received=delta('packetsReceived'),qp=delta('qpSum'),frames=delta('framesDecoded');
+    return {bitrateMbps:seconds>0&&bytes>=0?bytes*8/seconds/1e6:null,lossPct:lost!==null&&received!==null&&lost+received>0?Math.max(0,lost)*100/(lost+received):null,
+      qp:qp!==null&&frames>0?qp/frames:null,frames,framesDropped:delta('framesDropped'),freezes:delta('freezeCount'),
+      width:Number.isFinite(current.frameWidth)?current.frameWidth:null,height:Number.isFinite(current.frameHeight)?current.frameHeight:null};
+  }
+  // Compression-adaptive treatment: like a codec's deblocking filter, cleanup and debanding follow the
+  // quantizer. Level 0 (QP <= 20, clean stream) to 1 (QP >= 36, heavy compression), in steps of 0.1;
+  // QP 28 is neutral (all scales 1), so typical streams keep the measured v9 strengths.
+  function compressionLevel(qp){if(!Number.isFinite(qp))return null;const t=Math.min(1,Math.max(0,(qp-20)/16));return Math.round(t*t*(3-2*t)*10)/10;}
+  function compressionScales(level){if(level===null||!Number.isFinite(level))return {cleanup:1,deband:1,detail:1};
+    return {cleanup:.6+.8*level,deband:.6+.8*level,detail:1.2-.4*level};}
+  // One-tap starting points. natural = v9 measured defaults (docs/analysis-v9.md); console = sharpness
+  // 2 for less texture flicker (docs/analysis-v9.1.md); the others trade fidelity for a purpose.
+  const presets=Object.freeze({
+    natural:{label:'Natural',description:'Padrão medido da v9: fidelidade com nitidez do render limpo.',values:{sharpness:3,cleanup:.5,deband:.3,chroma:.75,detail:.2,sharpening:'usm',lumaSharpen:true,neural:0,temporal:0,antialias:0,output:'auto'}},
+    console:{label:'Console',description:'Nitidez 2: menos cintilação de textura, aparência de console.',values:{sharpness:2,cleanup:.5,deband:.3,chroma:.75,detail:.1,sharpening:'usm',lumaSharpen:true,neural:0,temporal:0,antialias:0,output:'auto'}},
+    sharp:{label:'Nítido',description:'Mais contorno e textura; mais cintilação em movimento.',values:{sharpness:4.5,cleanup:.35,deband:.2,chroma:.75,detail:.35,sharpening:'usm',lumaSharpen:true,neural:0,temporal:0,antialias:0,output:'auto'}},
+    clean:{label:'Bitrate baixo',description:'Mais limpeza de blocos e degradês para streams muito comprimidos.',values:{sharpness:2.5,cleanup:.8,deband:.6,chroma:.75,detail:.1,sharpening:'usm',lumaSharpen:true,neural:0,temporal:0,antialias:0,output:'auto'}},
+    light:{label:'Leve',description:'Menos passes na GPU: saída nativa, sem degradês nem detalhe.',values:{sharpness:3,cleanup:.35,deband:0,chroma:.5,detail:0,sharpening:'usm',lumaSharpen:true,neural:0,temporal:0,antialias:0,output:'native'}},
+  });
+  function presetOf(settings){for(const [key,p] of Object.entries(presets))if(Object.entries(p.values).every(([k,v])=>settings[k]===v))return key;return 'custom';}
+  // The Android app's WebView cannot download blobs: its bridge saves the file to Downloads instead.
+  function downloadReport(report){const name='bx-v9.7-diagnostics-'+Date.now()+'.json';
+    if(typeof globalThis.BxAndroid?.saveFile==='function'){const where=globalThis.BxAndroid.saveFile(name,'application/json',JSON.stringify(report,null,2));if(where)return where;}
+    const url=URL.createObjectURL(new Blob([JSON.stringify(report,null,2)],{type:'application/json'})),a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
   const vertex='#version 300 es\nlayout(location=0) in vec2 position;void main(){gl_Position=vec4(position,0,1);}';
   class Engine {
     constructor(gl,shaders){
@@ -270,14 +311,15 @@
     // outputTarget: draw the final pass into that persistent texture instead of the canvas, so a
     // frame pacer can present it later with present(). Names starting with 'paced' stay allocated.
     render(video,outW,outH,rawSettings,time,diagnostic=false,outputTarget=null){
-      const gl=this.gl,s=normalize(rawSettings),w=video.videoWidth||video.width,h=video.videoHeight||video.height;
+      const gl=this.gl,s=normalize(rawSettings),w=video.videoWidth||video.displayWidth||video.width,h=video.videoHeight||video.displayHeight||video.height;
       if(!w||!h||gl.isContextLost())return false;
       if(this.budget.limitMs!==s.gpuBudget){this.resetBudget();this.budget.limitMs=s.gpuBudget;}
       this.budget.configure(s,h);
       this.poll();let q=null;
       const revision=this.budget.revision;
       const filtered=s.mode==='filtered';
-      const segment=this.diagnostics.active?this.diagnostics.frame({settings:s,diagnostic,source:[w,h],output:[outW,outH],revision,effective:{neural:filtered&&this.floatTargets&&this.budget.neuralAllowed?s.neural:0,temporal:filtered&&s.temporal>0&&this.budget.temporalAllowed,cleanup:filtered&&this.budget.cleanupAllowed?s.cleanup:0,chroma:filtered&&this.budget.enhanceAllowed?s.chroma:0,detail:filtered&&this.budget.enhanceAllowed?s.detail:0,deband:filtered?s.deband*this.budget.debandScale:0,debandTaps:filtered&&s.deband>0?this.budget.debandTaps:0,antialias:filtered&&this.budget.antialiasAllowed?s.antialias:0}},performance.now()):null;
+      const {hud:_hud,hudPosition:_position,...measured}=s;
+      const segment=this.diagnostics.active?this.diagnostics.frame({settings:measured,diagnostic,source:[w,h],output:[outW,outH],revision,effective:{neural:filtered&&this.floatTargets&&this.budget.neuralAllowed?s.neural:0,temporal:filtered&&s.temporal>0&&this.budget.temporalAllowed,cleanup:filtered&&this.budget.cleanupAllowed?s.cleanup:0,chroma:filtered&&this.budget.enhanceAllowed?s.chroma:0,detail:filtered&&this.budget.enhanceAllowed?s.detail:0,deband:filtered?s.deband*this.budget.debandScale:0,debandTaps:filtered&&s.deband>0?this.budget.debandTaps:0,antialias:filtered&&this.budget.antialiasAllowed?s.antialias:0}},performance.now()):null;
       this.usedTargets=new Set();
       if(this.ext&&this.queries.length<4){q=gl.createQuery();gl.beginQuery(this.ext.TIME_ELAPSED_EXT,q);}
       try{
@@ -346,5 +388,5 @@
       gl.deleteTexture(this.input);gl.deleteBuffer(this.buffer);gl.deleteVertexArray(this.vao);this.targets={};this.programs={};this.queries=[];
     }
   }
-  globalThis.BxRestoration={createPacer,createRtpClock,frameStats,applySmoothing,h264Profile,decoderSummary,createDiagnostics,captureVideoStats,downloadReport,Engine,defaults,normalize,historyValid,createBudget,outputSize,resolveOutput};
+  globalThis.BxRestoration={streamSummary,compressionLevel,compressionScales,presets,presetOf,createPacer,createRtpClock,frameStats,applySmoothing,h264Profile,decoderSummary,createDiagnostics,captureVideoStats,downloadReport,Engine,defaults,normalize,historyValid,createBudget,outputSize,resolveOutput};
 })();
