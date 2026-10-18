@@ -96,8 +96,8 @@ public class MainActivity extends Activity {
         });
 
         webView.requestFocus();
-        if (savedInstanceState != null) webView.restoreState(savedInstanceState);
-        else webView.loadUrl(START_URL);
+        // restoreState returns null when nothing could be restored: load the start page instead of a blank screen.
+        if (savedInstanceState == null || webView.restoreState(savedInstanceState) == null) webView.loadUrl(START_URL);
     }
 
     /** Panel bridge (window.BxAndroid): fixed display refresh rate and app info. */

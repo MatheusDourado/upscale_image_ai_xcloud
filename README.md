@@ -1,4 +1,6 @@
-# Better xCloud — tratamento experimental v9.6
+# Better xCloud — tratamento experimental v9.6.1
+
+A **v9.6.1** corrige a **Fluidez Máxima**, que com 2% de quadros faltando na origem escorregava a grade, acumulava espera e descartava quadros, e passa a desenhar todo quadro novo exibido pelo navegador. O painel mostra os quadros pulados antes do tratamento. Veja [notas v9.6.1](docs/release-v9.6.1.md).
 
 A **v9.6** adiciona a **Fluidez**: cada quadro é tratado ao chegar e exibido em ritmo constante (seguindo o servidor ou numa grade fixa de 30/60 fps), contra as micro travadas a 30 fps em rede móvel. O painel mostra a origem do ritmo (servidor x chegada) e a espera acrescentada. Veja [notas v9.6](docs/release-v9.6.md).
 
@@ -30,16 +32,16 @@ A v7.1 corrige as pendências de degradês, halos e movimento da v7. O caminho p
 
 Para o Vostro 3400 ligado à TV por HDMI 1080p, comece em **saída Automática (resolve para nativa), Nitidez 3–5 no painel, orçamento 6 ms, Cor nas bordas 50%, Detalhe 35%, Degradês 30–50%, temporal e AA desligados**. A TV continua responsável por ampliar o sinal recebido para seu painel 4K. Forçar 4K no canvas não cria informação de uma renderização 4K do jogo, nem muda o sinal HDMI.
 
-## Android (v9.6)
+## Android (v9.6.1)
 
-Há um APK de teste em `android/dist/xcloud-imagefilter-9.6.apk`: um app WebView próprio que abre o xCloud com este userscript (v9.6). Veja [android/README.md](android/README.md).
+Há um APK de teste em `android/dist/xcloud-imagefilter-9.6.1.apk`: um app WebView próprio que abre o xCloud com este userscript (v9.6.1). Veja [android/README.md](android/README.md).
 
 ## Instalar
 
 1. Desative outras versões do Better xCloud no Tampermonkey. Não execute duas juntas.
 2. Substitua todo o conteúdo do script experimental por `better-xcloud-image-filter.user.js`, salve e recarregue o xCloud.
 3. Mantenha resolução **1080p HQ**, qualidade **Alta**, bitrate **Ilimitado** e renderizador **WebGL2**.
-4. Abra **Tratamento de imagem • v9.6** no menu do Better xCloud, na seção **Vídeo**, logo após **Nitidez**.
+4. Abra **Tratamento de imagem • v9.6.1** no menu do Better xCloud, na seção **Vídeo**, logo após **Nitidez**.
 5. Compare **Referência: só nitidez** e **Novo tratamento** na mesma cena, com a mesma Nitidez. **Vídeo original** desliga o tratamento e a nitidez.
 
 Desde a v8.6, a intensidade vem do slider **Nitidez** do painel (0–10, passo 0,5); o slider nativo do Better xCloud não é usado no tratamento. O método vem de **Nitidez final** no painel; a opção **Seguir menu nativo** usa CAS/USM do Better xCloud. O modo Performance/Qualidade continua vindo do menu nativo. Há uma única etapa de nitidez após o tratamento e o upscale. **Referência: só nitidez** usa a mesma intensidade, sem os demais tratamentos; **Vídeo original** não aplica nitidez.
@@ -62,13 +64,13 @@ As configurações experimentais usam uma nova chave de armazenamento, sem impor
 | Antialiasing | Suavização direcional de bordas inclinadas antes do upscale/nitidez. Sem temporal, roda dentro da passagem espacial (sem custo de passagem extra). Inicia desligado; experimente 0–25%: valores altos suavizam bordas e reduzem a nitidez. Não é MSAA/TAA do jogo. |
 | Tratamento na GPU | Adaptar acima de 3, 6 (padrão) ou 10 ms, ou manter todos os filtros ativos sem redução automática. |
 
-Valores iniciais: compressão 35%, degradês 30%, cor nas bordas 50%, detalhe 35%, temporal **desligado**, contraste/saturação 100%, sombras 0%. Experimente temporal em 20–40% e compare giros de câmera. Durante movimentos grandes, a etapa temporal pode rejeitar todo o histórico: isso protege contra rastros, mas limita o ganho.
+Valores iniciais (v9): Nitidez 3 (USM só na luma), compressão 50%, degradês 30%, cor nas bordas 75%, detalhe 20%; temporal, antialiasing e reconstrução neural **desligados**; saída Automática, orçamento 6 ms, Fluidez e Suavidade desligadas. Experimente temporal em 20–40% e compare giros de câmera. Durante movimentos grandes, a etapa temporal pode rejeitar todo o histórico: isso protege contra rastros, mas limita o ganho.
 
 **Diagnóstico: colorir imagem** confirma execução pela tonalidade magenta. **Restaurar tratamento** também reinicia o histórico e a adaptação de desempenho. Abra o menu de vídeo também durante tela cheia.
 
 ## Desempenho e limites
 
-O painel informa quadros, cadência e, quando disponível, tempo GPU total no percentil 95. A medição GPU inclui os comandos de upload e todos os passes: é um limite conservador, não uma medição isolada de custo adicional. Acima do limite escolhido (6 ms por padrão) sustentado, reduz apenas etapas ativas nesta ordem: temporal; saída ampliada (2160p → 1440p → nativa, quando acima da fonte); AA; degradês (quatro amostras → duas → desligado); limpeza de compressão; detalhe e cor nas bordas. As preferências salvas são preservadas, e o painel mostra a resolução efetiva. Texturas que deixam de ser necessárias são liberadas.
+O painel informa quadros, cadência e, quando disponível, tempo GPU total no percentil 95. A medição GPU inclui os comandos de upload e todos os passes: é um limite conservador, não uma medição isolada de custo adicional. Acima do limite escolhido (6 ms por padrão) sustentado, reduz apenas etapas ativas nesta ordem: temporal; saída ampliada (2160p → 1440p → nativa, quando acima da fonte); AA; reconstrução neural; degradês (quatro amostras → duas → desligado); limpeza de compressão; detalhe e cor nas bordas. As preferências salvas são preservadas, e o painel mostra a resolução efetiva. Texturas que deixam de ser necessárias são liberadas.
 
 **Manter todos os filtros ativos** impede essas reduções automáticas. Ajustar um controle do tratamento ou restaurá-lo reinicia a adaptação; ela não aumenta novamente a carga por conta própria. Todo o processamento dos pixels ocorre na GPU via WebGL2; essa opção não aumenta o clock nem altera a GPU escolhida pelo Chrome. A nitidez final permanece ativa conforme o controle nativo. CAS e USM têm limite de halos, e diferenças locais muito pequenas recebem menos reforço para evitar amplificar ruído.
 

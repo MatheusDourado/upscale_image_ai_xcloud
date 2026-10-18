@@ -38,6 +38,9 @@ probe=r'''
  player.refreshPlayer();check(player.gl.getError()===player.gl.NO_ERROR,'Better xCloud settings refresh remains valid');
  const count=player.bxEngine.frames;player.updateFrame();check(player.bxEngine.frames===count,'Duplicate source frame skipped');
  BxImageFilter.settings.mode='cas';player.updateFrame();check(player.bxEngine.frames===count+1,'Control change redraws paused frame');
+ {const before=player.bxEngine.frames;player.bxTiming.presented=(player.bxTiming.presented||0)+1;player.updateFrame();
+  check(player.bxEngine.frames===before+1,'A newly presented frame renders even when the decoded-frame counter did not advance');
+  player.updateFrame();check(player.bxEngine.frames===before+1,'The same presented frame is not processed twice');}
  player.bxEngine.budget.temporalAllowed=false;BxImageFilter.reset();check(player.bxEngine.budget.temporalAllowed,'Panel reset clears adaptation');
  
  const prevCount=player.bxEngine.frames;
@@ -55,7 +58,7 @@ probe=r'''
  prefs['video.processing.mode']='quality';player.updateFrame();check(player.gl.getError()===player.gl.NO_ERROR,'Native quality mode remains valid');
  const qualityPixels=readPlayer();check(Math.abs(qualityPixels[(40*128+20)*4]-85)<=1,'Quality halo limiter preserves uniform region luminance');
  const menu=document.createElement('section');document.body.append(menu);BxImageFilter.mountControls(menu);
- check(menu.querySelector('[data-bx-restoration="v9.6"]')&&!document.getElementById('bx-image-filter-panel'),'Controls mount inside supplied Better xCloud menu');
+ check(menu.querySelector('[data-bx-restoration="v9.6.1"]')&&!document.getElementById('bx-image-filter-panel'),'Controls mount inside supplied Better xCloud menu');
  check(menu.querySelectorAll("input[type=range]").length===8,"Sharpness, neural, compression, gradient, chroma, detail, temporal and AA sliders added");check(menu.querySelector("input[aria-label=Nitidez]")?.step==="0.5","Panel sharpness slider uses half steps");
  const sharpening=menu.querySelector('[aria-label="Nitidez final"]');sharpening.value='rcas';sharpening.dispatchEvent(new Event('change'));player.updateFrame();
  check(BxImageFilter.settings.sharpening==='rcas'&&player.gl.getError()===player.gl.NO_ERROR,'RCAS selector renders through native adapter');
@@ -101,7 +104,7 @@ probe=r'''
   check(!player.bxTiming.pacer&&!Object.keys(player.bxEngine.targets).some(n=>n.startsWith('paced')),'Turning Fluidez off releases its textures and loop');
   const copyButton=[...menu2.querySelectorAll('button')].find(b=>b.textContent==='Copiar configuração');copyButton.click();await new Promise(r=>setTimeout(r,200));
   const exported=JSON.parse(menu2.querySelector('textarea').value);
-  check(exported.treatment&&'smoothing' in exported.treatment&&'stream.video.resolution' in exported.betterXcloud&&exported.build==='6.7.12-imagefilter.9.6','Copy configuration exports treatment and Better xCloud settings');
+  check(exported.treatment&&'smoothing' in exported.treatment&&'stream.video.resolution' in exported.betterXcloud&&exported.build==='6.7.12-imagefilter.9.6.1','Copy configuration exports treatment and Better xCloud settings');
   check(!menu2.querySelector('select[aria-label="Codec (teste)"]')&&!menu2.querySelector('select[aria-label="Taxa da tela (app)"]'),'No codec test; refresh-rate control only inside the Android app');
   delete window.STATES;}
  // Exercise the browser's actual receiver setter, without media permissions or a remote service.
@@ -115,6 +118,11 @@ probe=r'''
   let sel=null;for(let t=0;t<10&&!(sel=menu2.querySelector('select[aria-label="Taxa da tela (app)"]'));t++)await new Promise(r=>setTimeout(r,300));
   check(sel&&[...sel.options].map(o=>o.value).join()==='0,60,90,120','Android app shows fixed refresh-rate options');
   sel.value='120';sel.dispatchEvent(new Event('change'));check(set===120,'Selecting a refresh rate calls the app bridge');delete window.BxAndroid;}
+ // A GPU failure while Fluidez is on must also end its display loop, not only the engine.
+ BxImageFilter.settings.fluidity='balanced';adapterInput.currentTime+=.033;player.updateFrame();
+ player.bxEngine.render=()=>{throw new Error('simulated GPU failure');};adapterInput.currentTime+=.033;player.updateFrame();
+ check(!player.bxEngine&&!player.bxTiming.pacer&&BxImageFilter.status.mode==='error','Render failure stops the Fluidez loop and falls back to the original renderer');
+ BxImageFilter.settings.fluidity='off';
  player.destroy();
  const nextPlayer=new WebGL2Player(adapterInput);await nextPlayer.setupShaders();nextPlayer.updateFrame();BxImageFilter.diagnostic=true;nextPlayer.updateFrame();
  const tint=new Uint8Array(128*96*4);nextPlayer.gl.readPixels(0,0,128,96,nextPlayer.gl.RGBA,nextPlayer.gl.UNSIGNED_BYTE,tint);
@@ -123,6 +131,23 @@ probe=r'''
  const stoppedPlayer=new WebGL2Player(adapterInput);const pending=stoppedPlayer.setupShaders();stoppedPlayer.destroy();await pending;check(!stoppedPlayer.bxEngine,'Destroy during asynchronous setup does not resurrect engine');
 
 
+ // requestVideoFrameCallback metadata: presented-frame gaps are counted and a newly presented frame is drawn.
+ {const rvfcInput=document.createElement('canvas');rvfcInput.width=128;rvfcInput.height=96;rvfcInput.currentTime=5;let onMeta=null;
+  rvfcInput.requestVideoFrameCallback=cb=>{onMeta=cb;return 1;};rvfcInput.cancelVideoFrameCallback=()=>{};
+  const rvfcPlayer=new WebGL2Player(rvfcInput);await rvfcPlayer.setupShaders();
+  onMeta(0,{presentedFrames:10});rvfcPlayer.updateFrame();const drawn=rvfcPlayer.bxEngine.frames;
+  onMeta(0,{presentedFrames:13});rvfcPlayer.updateFrame();
+  check(rvfcPlayer.bxEngine.frames===drawn+1&&BxImageFilter.status.origin.presented===3&&BxImageFilter.status.origin.missed===2,'Presented frames that skipped the treatment are counted; the new one is drawn');
+  rvfcPlayer.destroy();}
+ // Reference sharpening keeps one source texel between taps when the output is larger than the video.
+ {const overshoot=scale=>{const c=document.createElement('canvas');c.width=64*scale;c.height=32*scale;
+   const g=c.getContext('webgl2',{preserveDrawingBuffer:true,antialias:false}),e=new BxRestoration.Engine(g,BxShaders);
+   const src=document.createElement('canvas');src.width=64;src.height=32;const x=src.getContext('2d');x.fillStyle='rgb(80,80,80)';x.fillRect(0,0,32,32);x.fillStyle='rgb(160,160,160)';x.fillRect(32,0,32,32);
+   e.render(src,c.width,c.height,BxRestoration.normalize({mode:'cas',sharpening:'usm',sharpness:5,gpuBudget:0}),0);
+   const row=new Uint8Array(c.width*4);g.readPixels(0,16*scale,c.width,1,g.RGBA,g.UNSIGNED_BYTE,row);e.destroy();
+   let hi=0;for(let i=0;i<row.length;i+=4)hi=Math.max(hi,row[i]);return hi-160;};
+  const native=overshoot(1),doubled=overshoot(2);
+  check(native>10&&doubled>=native*.6,`Reference sharpening keeps its strength at 2x output (${native} vs ${doubled})`);}
  // Isolate AA at native resolution and with sharpening disabled.
  canvas.width=128;canvas.height=96;
  for(let y=0;y<96;y++)for(let x=0;x<128;x++){ctx.fillStyle=x>y*.5+30?'white':'black';ctx.fillRect(x,y,1,1);}

@@ -8,6 +8,12 @@ assert source.count(marker)==1
 a=source.index('class WebGL2Player');b=source.index(marker,a)
 cas=re.search(r'gl.shaderSource\(fShader, `([^`]+)`\)',source[a:b]).group(1)
 cas=cas.replace('precision mediump float;','precision highp float;\nprecision highp sampler2D;').replace('1.0 / maxRgb','1.0 / max(maxRgb, vec3(1e-6))').replace('inversesqrt(amplifyRgb)','inversesqrt(max(amplifyRgb, vec3(1e-6)))')
+# Upstream takes the texel size from the canvas, which equals the video there. Here the canvas can
+# be larger (Auto/2K/4K output): neighbors must stay one source texel apart, or the reference
+# sharpening fades (USM 4x weaker at 2x output).
+texel='vec2 texelSize = 1.0 / iResolution.xy;'
+assert cas.count(texel)==1
+cas=cas.replace(texel,'vec2 texelSize = 1.0 / vec2(textureSize(tex, 0));')
 shaders={p.stem:p.read_text() for p in sorted(Path('src/shaders').glob('*.glsl'))}
 # Neural restoration: weights from src/nn/restore.json (tools/nn/train.py) become shader constants.
 import sys; sys.path.insert(0,'tools')
@@ -39,9 +45,9 @@ for expression in ['e + (e - gaussianBlur) * sharpenFactor / 3.0','mix(e, outCol
     assert filtered.count(needle)==1
     filtered=filtered.replace(needle,'return limitSharpen(e,'+expression+','+bounds+');')
 shaders['casFiltered']=filtered
-inputs=[Path('script.js'),Path('tools/build.py'),*sorted(Path('src').rglob('*.*'))]
+inputs=[Path('script.js'),Path('tools/build.py'),Path('tools/nn_glsl.py'),*sorted(Path('src').rglob('*.*'))]
 fingerprint=hashlib.sha256(b''.join(str(p).encode()+b'\0'+p.read_bytes() for p in inputs if p.is_file())).hexdigest()
-build='globalThis.BxBuild='+json.dumps({'version':'6.7.12-imagefilter.9.6','sourceSha256':fingerprint})+';\n'
+build='globalThis.BxBuild='+json.dumps({'version':'6.7.12-imagefilter.9.6.1','sourceSha256':fingerprint})+';\n'
 bundle=build+'globalThis.BxShaders='+json.dumps(shaders)+';\n'+Path('src/restoration-engine.js').read_text()
 Path('output/restoration.bundle.js').parent.mkdir(parents=True,exist_ok=True)
 Path('output/restoration.bundle.js').write_text(bundle)
@@ -53,8 +59,8 @@ menu='\"video.processing.sharpness\",\"video.saturation\"'
 assert source.count(menu)==1
 source=source.replace(menu,'\"video.processing.sharpness\",($parent) => {window.BxImageFilter.mountControls($parent);},\"video.saturation\"')
 source=source.replace(marker,bundle+'\n'+Path('src/frame-pacing.js').read_text()+'\n'+Path('src/image-filter.js').read_text()+'\n'+marker)
-source=source.replace('// @name         Better xCloud','// @name         Better xCloud — Image Filter Experimental').replace('// @version      6.7.12','// @version      6.7.12-imagefilter.9.6')
+source=source.replace('// @name         Better xCloud','// @name         Better xCloud — Image Filter Experimental').replace('// @version      6.7.12','// @version      6.7.12-imagefilter.9.6.1')
 source='\n'.join(line for line in source.split('\n') if not line.startswith(('// @updateURL','// @downloadURL')))
 source=source.replace('// @grant        none','// @grant        none\n// @updateURL    none\n// @downloadURL  none').replace('CheckForUpdate: !0','CheckForUpdate: !1',1)
 Path('better-xcloud-image-filter.user.js').write_text(source)
-print('Built userscript v9.6 and shared player bundle')
+print('Built userscript v9.6.1 and shared player bundle')
